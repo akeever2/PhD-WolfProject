@@ -1,6 +1,7 @@
 ##############################################################################
 
-#                     Empirical recruitment model code            
+#             Integrated population model code to estiamte recruitment
+
 # Allison C. Keever
 # Montana Cooperative Wildlife Research Unit
 # 2016
@@ -17,7 +18,7 @@ library(mcmcplots)
 ################################################################################
 #  Specify model in BUGS language
 
-sink("EmpRecruitModel.txt")
+sink("IPMmodel.txt")
 cat("
     model {
 
@@ -149,17 +150,52 @@ cat("
         }#k
       }#j
     }#i
+
+
+#  Derived parameters
+
+  #  Mean annual parameter for psi and number of occupied sites           
+  
+    for(k in 1:K){
+      psik[k] <- mean(psi[,k])
+      n.occ[k] <- sum(z[1:nSite, k])
+    }#k
+
+  #  Area occpupied indexed by year and region
     
-
-
-
+    for (i in 1:nsite){
+      for(k in 1:K){
+        A[i,k] <- psi[i,k]*area[i,k]
+      }
+    }
 
 
 
 
 #####################
 
-# 2.2. Pop level model 
+# 2.2. Territory model 
+
+# Input includes area occupied (A) indexed by year and region from occupancy model (2.1.)
+# Area occupied is divided by territory size (T)
+#   Simple model of the mean based on results from Rich et al. 2012
+
+# Output is number of packs (P) indexed by year and region
+    
+####################
+
+
+# Ecological model 
+
+    P[t,k] <- A[t,k] / T
+
+????????????????????????????????????????????????????????????????????????
+
+
+
+#####################
+
+# 2.3. Survival likelihood 
     
 ####################
 
@@ -168,28 +204,91 @@ cat("
 
 
 
+
+
 #####################
 
-# 2.3. Group level counts likelihood 
+# 2.4. Group level counts likelihood 
+
+# Input data are group counts (y.group)
+# Input estimates are survival (s) from survival model indexed by year and region and
+#   recruitment (number of pups per pack, gamma) indexed by year, region, and group
+
+# Output is mean estimate of group size (G) which are indexed by year, region, and group
   
 ####################
 
+# Ecological model/ system process
+
+    for(t in 1:nyears){
+      for(k in 1:nregions){
+        for(i in 1:ngroups){
+          g.mu[t,k,i] <- g.mu[t-1,k,i] * (s[t,k] + delta + eps) + gamma[t-1,k,i]
+          G[t,k,i] ~ dpois(g.mu[t,k,i])
+        }
+      }
+    }
+
+# Observation proccess
+
+    for(t in 1:nyears){
+      for(k in 1:nregions){
+        for(i in 1:ngroups){
+          y.group[t,k,i] ~ dnorm(g.mu[t,k,i], tauy.group)
+        }
+      }
+    }
+
+# Derived parameters
+
+    for(t in 1:nyears){
+      for(k in 1:nregions){
+        G.mean[t,k] <-    ?????????????????????????????????????????????????
+        gamma.mean[t,k] <- ??????????????????????????????????????????????
+      }
+    }
+
+
 
 
 #####################
 
-# 2.4. Survival likelihood 
+# 2.5. Population level model 
     
 ####################
 
+# Ecological model/ system process
 
+    for(t in 1:nyears){
+      for(k in 1:nregions){
+        N.mu[t-1,k] <- P[t-1,k] * G.mean[t-1,k]
+        N.mu[t,k] <- N.mu[t-1,k] * (s[t,k] + delta + eps) + gamma.mean[t-1,k] * P[t-1,k]
+        N[t,k] <- dpois(N.mu[t,k])
+      }
+    }
+    
+    
+    # Observation proccess
+    
+    ????????????????????????????????????????????????????????????
+    
+    # Derived parameters
+    
+    ????????????????????????????????????????????????????????????
 
 
 #####################
 
-# 2.5. Recruitment model 
+# 2.6. Recruitment model 
     
 ####################
+
+
+# Generalized linear model with log link function for recruitment
+
+gamma[t,k,i] <-
+
+
 
 
 
