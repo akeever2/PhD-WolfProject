@@ -28,8 +28,9 @@ cat("
 
 ############################################################
 
-#  Priors for OCCUPANCY parameters
-  #  psi1 coefficient (occupancy in year 1)
+#  Priors for OCCUPANCY parameters that are indexed by year (k)
+  
+    #  psi1 coefficient (occupancy in year 1)
     
     B0.psi1 ~ dnorm(0,0.001)	        
     
@@ -55,12 +56,31 @@ cat("
 
 
 
-#  Priors for ?????
-  #  ?????
+#  Priors for Group level counts
+
+  #  Prior for initial group size
+
+    for(i in 1:ngroups){
+      G[1,,i] ~ 
+    }
+
+
+  # Prior for observation error on group counts
+
+    tauy.group <- pow(sigma.group, -2)
+    sigma.group ~ dunif(0,100)
+    sigma2.group <- pow(sigma.group, 2)  # keep track of this
 
 
 
 
+
+#  Priors for recruitment model
+
+    #  Priors for covariates
+    
+      b0.gam ~ dnorm(0,0.001)
+    
 
 
 
@@ -176,18 +196,17 @@ cat("
 
 # 2.2. Territory model 
 
-# Input includes area occupied (A) indexed by year and region from occupancy model (2.1.)
+# Input includes area occupied (A) indexed by year (k) and region (r) from occupancy model (2.1.)
 # Area occupied is divided by territory size (T)
 #   Simple model of the mean based on results from Rich et al. 2012
 
-# Output is number of packs (P) indexed by year and region
+# Output is number of packs (P) indexed by year (k) and region (r)
     
 ####################
 
 
-# Ecological model 
 
-    P[t,k] <- A[t,k] / T
+    P[k,r] <- A[k,r] / T
 
 ????????????????????????????????????????????????????????????????????????
 
@@ -203,16 +222,13 @@ cat("
 
 
 
-
-
-
 #####################
 
 # 2.4. Group level counts likelihood 
 
 # Input data are group counts (y.group)
-# Input estimates are survival (s) from survival model indexed by year and region and
-#   recruitment (number of pups per pack, gamma) indexed by year, region, and group
+# Input estimates are survival (s) from survival model indexed by year (k) and region (r) and
+#   recruitment (number of pups per pack, gamma) indexed by year, region, and group (i)
 
 # Output is mean estimate of group size (G) which are indexed by year, region, and group
   
@@ -220,31 +236,31 @@ cat("
 
 # Ecological model/ system process
 
-    for(t in 1:nyears){
-      for(k in 1:nregions){
+    for(k in 2:nyears){
+      for(r in 1:nregions){
         for(i in 1:ngroups){
-          g.mu[t,k,i] <- g.mu[t-1,k,i] * (s[t,k] + delta + eps) + gamma[t-1,k,i]
-          G[t,k,i] ~ dpois(g.mu[t,k,i])
+          g.mu[k,r,i] <- G[k-1,r,i] * (s[k-1,r] + delta + eps) + gamma[k-1,r,i]
+          G[k,r,i] ~ dpois(g.mu[k,r,i])
         }
       }
     }
 
 # Observation proccess
 
-    for(t in 1:nyears){
-      for(k in 1:nregions){
+    for(k in 1:nyears){
+      for(r in 1:nregions){
         for(i in 1:ngroups){
-          y.group[t,k,i] ~ dnorm(g.mu[t,k,i], tauy.group)
+          y.group[k,r,i] ~ dnorm(G[k,r,i], tauy.group)
         }
       }
     }
 
 # Derived parameters
 
-    for(t in 1:nyears){
-      for(k in 1:nregions){
-        G.mean[t,k] <-    ?????????????????????????????????????????????????
-        gamma.mean[t,k] <- ??????????????????????????????????????????????
+    for(k in 1:nyears){
+      for(r in 1:nregions){
+        G.mean[k,r] <- mean(G[k,r,])
+        gamma.mean[k,r] <- mean(gamma[k,r,])
       }
     }
 
@@ -259,20 +275,21 @@ cat("
 
 # Ecological model/ system process
 
-    for(t in 1:nyears){
-      for(k in 1:nregions){
-        N.mu[t-1,k] <- P[t-1,k] * G.mean[t-1,k]
-        N.mu[t,k] <- N.mu[t-1,k] * (s[t,k] + delta + eps) + gamma.mean[t-1,k] * P[t-1,k]
-        N[t,k] <- dpois(N.mu[t,k])
+    for(k in 1:nyears){
+      for(r in 1:nregions){
+        N.mu[k,r]<-P[k,r]*G.mean[k,r]
+      }
+    }
+
+    for(k in 1:nyears){
+      for(r in 1:nregions){
+        N.mu[k,r] <- N.mu[k-1,r] * (s[k,r] + delta + eps) + gamma.mean[k-1,r] * P[k-1,r]
+        N[k,r] <- dpois(N.mu[k,r])
       }
     }
     
-    
-    # Observation proccess
-    
-    ????????????????????????????????????????????????????????????
-    
-    # Derived parameters
+
+# Derived parameters
     
     ????????????????????????????????????????????????????????????
 
@@ -286,7 +303,15 @@ cat("
 
 # Generalized linear model with log link function for recruitment
 
-gamma[t,k,i] <-
+  for(k in 1:nyears){
+    for(r in 1:nregions){
+      for(i in 1:ngroups){
+        log(mu.gamma[k,r,i]) <- b0.gam
+        gamma[k,r,i] <- dpois(mu.gamma[k,r,i])
+      }
+    }
+  }
+
 
 
 
