@@ -144,7 +144,7 @@ datum<-data.fn(nsites=50, nyears=10, nregions=5, ngroups=50, s.prob=0.8, Tr=600,
                imm.group=0.1, em.group=0.15, imm.p=0, em.p=0, b0.gam=1.5, sd.proc=1, 
                sigma.group=1)
 
-detach()
+#detach()
 attach(datum)
 str(datum)
 

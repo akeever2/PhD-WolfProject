@@ -1,3 +1,269 @@
+##########################################################
+
+#         Make fake data
+
+##########################################################
+
+
+
+# N = sample size    
+# lambda = scale parameter in h0()
+# beta = fixed effect parameter
+# rateC = rate parameter of the exponential distribution of C
+
+simulCoxExp <- function(N, h0, beta, rateC)
+{
+  # covariate --> N Bernoulli trials
+  x <- sample(x=c(0, 1), size=N, replace=TRUE, prob=c(0.5, 0.5))
+  
+  # Simulate survival times using exonential latent event times
+  u <- runif(n=N, 0, 1)
+  Tlat <- -(log(u) / (h0 * exp(x * beta)))
+  
+  # censoring times
+  C <- rexp(n=N, rate=rateC)
+  
+  # follow-up times and event indicators
+  time <- pmin(Tlat, C)
+  status <- as.numeric(Tlat <= C)
+  range2 <- function (x){ (x-min(x))/(max(x)-min(x))*(365-0)+0}
+  time2 <- range2(x=time)
+  
+  # data set
+  data.frame(id=1:N,
+             time=time,
+             time2=time2,
+             status=status,
+             x=x)
+}
+
+
+datum <- simulCoxExp(100, 0.001, -.6, .001)
+
+
+
+
+
+
+##########################################################
+
+# Cox proportional hazards model code with a counting process. 
+# Adapted from Luek Winbugs example
+
+##########################################################
+
+
+
+
+
+library(R2jags)
+library(mcmcplots)
+################################################################################
+#  Specify model in BUGS language
+
+sink("survival.txt")
+cat("
+    
+    data {
+    
+    # Set up the data
+    
+      for(i in 1:N.surv) {
+        for(j in 1:T) {
+          # Create risk set; Yij = 1 if obs.t >= t and start.t <= t
+          Y[i,j] <- step(obs.t[i] - t[j] + eps) #* step(t[j] - start.t[i] + eps) 
+          
+          # Counting process jump; dN = 1 if obs.t is in interval [t[j], t[j+1) 
+          # and fail = 1
+          dN[i,j] <- Y[i,j] * step(t[j+1] - obs.t[i] - eps) * fail[i] 
+        }
+      }
+      
+    
+    }    
+    
+    
+    model {
+    
+    # Now that the data are set up, run the model
+    
+    
+    # Specify priors
+    
+      # for(j in 1:T){
+        # Prior for baseline hazard if using the Poisson trick
+        # b0.surv[j] ~ dnorm(0, 0.001)
+        # dL0[j] <- exp(b0.surv[j])
+      # }
+
+      # Prior for beta coefficient
+      beta ~ dnorm(0, 0.0001)
+    
+
+    # Likelihood and Intensity process...What is the intensity process?
+    
+      for(j in 1:T) {
+        for(i in 1:N.surv) {
+      
+          dN[i,j] ~ dpois(Idt[i,j])
+          Idt[i,j] <- Y[i,j] * exp(beta * x[i]) * dL0[j]
+
+          # Intensity process if using the Poisson trick - independent log-normal
+          # increments which means drop dL0, c, r, and mu from model
+          #Idt[i,j] <- Y[i,j] * exp(b0.surv[j] + beta * x[i])
+        }
+      
+        # Prior mean hazard
+        dL0[j] ~ dgamma(mu[j], c)
+        mu[j] <- dL0.star[j] * c
+
+        # Survival function for both groups of fake data; multiply beta coefficient
+        # by covariate value (1 or 0 in this example)
+        S.treat[j] <- pow(exp(-sum(dL0[1:j])), exp(beta * 1))
+        S.no[j] <- pow(exp(-sum(dL0[1:j])), exp(beta * 0))
+        
+      }
+      
+      # Confidence in guess for dL0
+      c <- 0.001
+      
+      # Prior guess at failure rate
+      r <- 0.1
+      
+      for(j in 1:T){
+        dL0.star[j] <- r * (t[j+1] - t[j])
+      }
+      
+      # Annual survival in this example because observations end after 1 year
+      S.annual.treat <- S.treat[T]
+      S.annual.no <- S.no[T]
+    
+    
+    }
+    ", fill=TRUE)
+sink()
+
+obs.t <- datum$time
+fail <- datum$status
+x <- datum$x
+t <- c(unique(obs.t),max(obs.t))
+T<- as.numeric(length(unique(obs.t)))
+N.surv<-as.numeric(length(unique(datum$id)))
+eps <-0.000001
+c <- 0.001  #confidence in guess for dL0
+r <- 0.1    #prior guess at failure rate
+
+win.data <- list("obs.t"=obs.t, "T"=T, "t"=t, "eps"=eps, "x"=x,
+                 "fail"=fail, "N.surv"=N.surv)
+
+
+#  Initial Values	
+inits <- function(){list()}
+
+
+# Parameters to keep track of and report
+params <- c("S.annual.treat", "S.annual.no","S", "dL0", "beta") 
+
+
+# MCMC Settings 
+ni <- 500
+nt <- 2
+nb <- 250
+nc <- 3
+
+
+# Call JAGS 
+out <- jags(win.data, inits, params, "survival.txt", n.chains=nc, n.thin=nt, n.iter=ni, n.burnin=nb)
+
+print(out, dig=2)
+
+out2 <- out
+mcmcplot(out2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+fit <- coxph(Surv(time, status)~x, data=datum)
+survs <- survfit(fit, newdata=data.frame(x=1))
+plot(survs)
+
+fit <- coxph(Surv(time2, status)~x, data=datum)
+survs <- survfit(fit, newdata=data.frame(x=1))
+plot(survs)
+
+
+n = 100
+round=2
+x1 = rbinom(n,size=1,prob=0.5)
+x2 = rbinom(n,size=1,prob=0.5)
+x3 = rbinom(n,size=1,prob=0.5)
+x = t(rbind(x1,x2,x3))
+censortime = runif(n,0,1)
+survtime= rexp(n,rate=exp(x1+2*x2+3*x3))
+survtime = round(survtime,digits=round)
+event = as.numeric(censortime>survtime)
+y = survtime; 
+y[event==0] = censortime[event==0]
+t=sort(unique(y[event==1]))
+t=c(t,max(censortime))
+bigt=length(t)-1
+
+
+
+
 #######
 
 # Cox proportional hazards model code with a counting process. 
@@ -22,7 +288,8 @@ t <- c(unique(obs.t),max(obs.t))
 T<- 238 #length(unique(obs.t))
 N.surv<-1270
 eps <-0.000001
-
+c <- 0.001  #confidence in guess for dL0
+r <- 0.1    #prior guess at failure rate
 
 
 
@@ -61,21 +328,17 @@ model {
   
   # Prior for independent log-normal hazard increments
 
-    for(j in 1:T){
-      b0.surv[j] ~ dnorm(0, 0.001)
-      dL0[j] <- exp(b0.surv[j])
-    }
+    #for(j in 1:T){
+      #b0.surv[j] ~ dnorm(0, 0.001)
+      #dL0[j] <- exp(b0.surv[j])
+    #}
 
   # If you don't want to use the above for hazard, use this adds dL0, c, r, mu to model
 
-    #for(j in 1:T){
-      #dL0[j] ~ dgamma(mu[j], c)
-      #mu[j] <- dL0.star[j]*c
-      #dL0.star[j] <- r*(t[j+1]-t[j])
-    #}
-
-    #c <- 0.001  #confidence in guess for dL0
-    #r <- 0.1    #prior guess at failure rate
+    # for(j in 1:T){
+    #   dL0[j] ~ dgamma(mu[j], c)
+    #   mu[j] <- dL0.star[j]*c
+    # }
     
 
 
@@ -85,14 +348,25 @@ model {
         for(i in 1:N.surv) {
 
           dN[i,j] ~ dpois(Idt[i,j]) 
-          Idt[i,j] <- Y[i,j]*exp(b0.surv[j])  #Intensity process, this is where you could add in covariates
-          #Idt[i,j] <- Y[i,j] * dL0[j]        #Intensity process for the other modeling framework
+          #Idt[i,j] <- Y[i,j]*exp(b0.surv[j])  #Intensity process, this is where you could add in covariates
+          Idt[i,j] <- Y[i,j] * dL0[j]        #Intensity process for the other modeling framework
         }
+
+        dL0[j] ~ dgamma(mu[j], c)
+        mu[j] <- dL0.star[j]*c
+
 
         S[j] <- exp(-sum(dL0[1:j]))
         #S[j] <- pow(exp(-sum(b0.surv[1:j])), exp(b1*X)) #Survival if you have coefficients
+    
       }
 
+      #c <- 0.001  #confidence in guess for dL0
+      #r <- 0.1    #prior guess at failure rate
+    
+      for(j in 1:T){
+        dL0.star[j] <- r*(t[j+1]-t[j])
+      }
 
       S.annual <- S[T]
     
@@ -104,7 +378,8 @@ sink()
 
 
 
-win.data <- list("start.t"=start.t, "obs.t"=obs.t, "T"=T, "t"=t, "eps"=eps, "fail"=fail, "N.surv"=N.surv)
+win.data <- list("start.t"=start.t, "obs.t"=obs.t, "T"=T, "t"=t, "eps"=eps, 
+                 "fail"=fail, "N.surv"=N.surv, "c"=c, "r"=r)
 
 
 #  Initial Values	
@@ -112,7 +387,7 @@ inits <- function(){list()}
 
 
 # Parameters to keep track of and report
-params <- c("S.annual", "S") 
+params <- c("S.annual", "S", "dL0") 
 
 
 # MCMC Settings 
@@ -140,6 +415,152 @@ mcmcplot(out2)
 
 
 
+
+
+
+
+
+
+
+n = 100
+round=2
+x1 = rbinom(n,size=1,prob=0.5)
+x = t(rbind(x1))
+censortime = runif(n,0,1)
+survtime= rexp(n,rate=exp(-.5*x1))
+survtime = round(survtime,digits=round)
+event = as.numeric(censortime>survtime)
+y = survtime; 
+y[event==0] = censortime[event==0]
+t=sort(unique(y[event==1]))
+t=c(t,max(censortime))
+bigt=length(t)-1
+
+
+
+
+
+
+
+sink("survival.txt")
+cat("
+    
+    # Set up data
+
+    data {
+
+      for(i in 1:N) {
+        for(j in 1:T) {
+          Y[i,j] <- step(obs.t[i] - t[j] + eps)
+          dN[i, j] <- Y[i, j] * step(t[j + 1] - obs.t[i] - eps) * fail[i]
+        }
+      }
+
+    }
+
+
+    # Specify model
+
+    model{
+
+      for(i in 1:N){
+        betax[i,1] <- 0
+      
+        for(k in 2:(p+1)){
+          betax[i,k] <- betax[i,k-1] + beta[k-1]*x[i,k-1]
+        }
+      }
+
+      for(j in 1:T) {
+        for(i in 1:N) {
+          dN[i, j] ~ dpois(Idt[i, j]) # Likelihood
+          Idt[i, j] <- Y[i, j] * exp(betax[i,p+1]) * dL0[j] # Intensity
+        }
+      
+        dL0[j] ~ dgamma(mu[j], c)
+        mu[j] <- dL0.star[j] * c # prior mean hazard
+      }
+      
+      c <- 0.001
+      r <- 0.1
+      
+      for (j in 1 : T) {
+        dL0.star[j] <- r * (t[j + 1] - t[j])
+      } 
+      
+      for(k in 1:p){
+        beta[k] ~ dnorm(0.0,0.000001)
+      }
+
+    }
+
+
+", fill=TRUE)
+sink()
+
+
+
+
+
+model=c(1)
+x <- x[,model==1]
+p <- sum(model) # models have betas with 1
+params <- c("beta","dL0")
+win.data <- list(x=x,obs.t=y,t=t,T=bigt,N=n,fail=event,eps=1E-10,p=p)
+inits <-  function(){list( beta = rep(0,p), dL0 = rep(0.0001,bigt))}
+
+
+# MCMC Settings 
+ni <- 500
+nt <- 2
+nb <- 250
+nc <- 3
+
+
+# Call JAGS 
+out <- jags(win.data, inits, params, "survival.txt", n.chains=nc, n.thin=nt, n.iter=ni, n.burnin=nb)
+
+print(out, dig=2)
+
+out2 <- out
+mcmcplot(out2)
+
+
+
+
+
+# Adapted from Princeton prof. http://data.princeton.edu/wws509/R/c7s1.html
+
+
+require(foreign)
+
+somoza <- read.dta("http://data.princeton.edu/wws509/datasets/somoza.dta")
+
+s <- aggregate(dead ~ cohort + age, data=somoza, FUN=sum)
+
+s$alive <- aggregate(alive ~ cohort + age, data=somoza, FUN=sum)[,"alive"]
+
+s <- s[order(s$cohort, s$age),]
+
+
+w <- c(1,2,3,6,12,36,60,0)/12
+
+s$exposure <- 0
+
+for(cohort in levels(s$cohort)) {
+     i <- which(s$cohort == cohort)
+     data <- s[i,]
+     n <- sum(data$alive + data$dead)
+     exit <- n - cumsum(data$alive + data$dead)
+     enter <- c(n, exit[-length(exit)])
+     s[i,"exposure"] <- w*(enter+exit)/2
+   }
+
+co <- subset(s, age != "10+ years")
+
+co$age <- factor(co$age) # dropping level 10+
+
+names(co)[3] <- "deaths"
 
 
 
