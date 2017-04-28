@@ -1,3 +1,244 @@
+
+# Example from http://data.princeton.edu/wws509/R/recidivism.html, German Rodriguez 
+# at Princeton University GLM class. 
+
+
+library(foreign)
+recid <- read.dta("http://www.stata.com/data/jwooldridge/eacsap/recid.dta")
+nrow(recid)
+
+
+
+recid <- mutate(recid, fail = 1 - cens, id = row_number())
+filter(recid, id == 9) %>% select(id, durat, fail)
+
+
+# To create pseudo-observations for survival analysis we will use the survSplit() 
+# function in the `survival` package. We will split the data into single-year 
+# intervals of duration from 0-12 to 48-60 with an open-ended category 60+.
+
+library(survival)
+breaks <- seq(12, 60, by=12)
+recidx <- survSplit(Surv(durat, fail) ~ ., data = recid, cut = breaks, 
+                    episode = "interval", start = "start")
+
+
+# The function codes the interval variable using integer codes, and we turn that 
+# into a factor for convenience We calculate exposure time for each episode as the 
+# difference between duration at the start and end.
+
+recidx <- mutate(recidx, exposure = durat - start, 
+                 interval = factor(interval,  
+                                   labels = paste("(", c(0,breaks), ",", 
+                                                  c(breaks,100), "]", sep=""))) %>%
+  rename(events = fail)
+nrow(recidx)
+
+
+# Finally we show how the observation for subject 9 above becomes five 
+# pseudo-observations, with 12 months of exposure in years one to four with no 
+# events, and 6 months of exposure in year five with one event.
+
+filter(recidx, id == 9) %>% select(id, start, durat, interval, events, exposure)
+
+
+
+# We are now ready to fit a proportional hazards model with a piecewise exponential 
+# baseline where the hazard changes from year to year. We use the same model as 
+# Wooldridge(2002), involving ten predictors, all fixed covariates.
+
+
+fit=glm(events~interval+workprg+priors+tserved+felon+alcohol+drugs+black+married+
+          educ+age+offset(log(exposure)), data=recidx, family=poisson)
+summary(fit)
+
+
+
+
+# The results are exactly the same as in the sister page using Stata. We see that the 
+# risk of recidivism is about the same in the first two years, but then decreases 
+# substantially with duration since release. At any given duration felons have 25% 
+# lower risk of recidivism than non-felons with the same observed characteristics. 
+# Subjects imprisoned for alcohol or drug related offenses have much higher risk of 
+# recidivism, everything else being equal
+
+
+
+
+
+# We now illustrate the calculation of survival probabilities. We start with the 
+# baseline hazard, which we obtain by adding the constant to the interval 
+# coefficients using zero for (0-12] to obtain log-hazards, and exponentiating to 
+# get hazards. To obtain the cumulative or integrated hazard we multiply each hazard 
+# by the width of the interval, which happens to be 12 for all intervals, and sum. 
+# We then obtain the survival as the exponential of the negative cumulative hazard. 
+# Note that we only need the first five years.
+
+b = coef(fit)
+h = exp( b[1] + c(0,b[2:6]) )
+H = cumsum( 12*h)
+S = exp(-H)
+S
+
+# These calculations apply to the reference cell and are not very meaningful because 
+# they set age to zero (and age, by the way, is measured in months).
+# 
+# We will now estimate the probability of staying out of prison for five years given 
+# average values of the predictors. In calculating the mean of each predictor we have 
+# to be careful to include only one observation per person, so we restrict the 
+# calculation to the first interval, which is "(0,12]". To do this I extract the 
+# first row for each person and the columns corresponding to fixed predictors into a 
+# matrix X. The relevant coefficients are in slots 7 to 16.
+
+xvars = c("workprg","priors","tserved","felon","alcohol","drugs","black","married",
+          "educ","age")
+X = recidx[recidx$interval=="(0,12]", xvars]
+xbar = colMeans(X)
+bx = b[7:16]
+xb = sum(xbar * bx)
+exp(-H[5] * exp(xb))
+
+
+
+# Thus, the probability of staying out of prison for the average person is 65.7%. 
+# We can easily calculate this probability for felons and non-felons keeping all 
+# other variables at their means. Note that felon is the 4-th predictor in X
+
+xb0 = sum(xbar[-4] * bx[-4])  
+exp(-H[5] * exp(xb0))
+
+xb1 = xb0 + bx[4]
+exp(-H[5] * exp(xb1))
+
+
+# The predicted probability is 70.8% for felons and 63.2% for non-felons when all 
+# other characteristics are set to the mean, a difference of 7.6 percentage points.
+# 
+# An alternative calculation sets every person to be a felon or non-felon leaving 
+# all other characteristics as they are, and then averages the predicted probability 
+# of surviving five years without returning to prison.
+
+felon = X[,"felon"]
+X[,"felon"]= 0
+xb = as.matrix(X) %*% bx
+mean(exp(-(H[5] * exp(xb))))
+
+X[,"felon"]= 1
+xb = as.matrix(X) %*% bx
+mean(exp(-(H[5] * exp(xb))))
+
+X[,"felon"] = felon
+
+# The average probability of staying out of prison for five years is 68.6% if a 
+# felon and 61.2% if not, a difference of 7.4 percentage points.
+
+
+
+
+## Another example: http://data.princeton.edu/wws509/R/c7s1.html
+
+# The datasets page has the original tabulation of children by sex, cohort, age and 
+# survival status (dead or still alive at interview), as analyzed by Somoza (1980).
+# 
+# As is often the case with survival data, a good part of the effort is to convert 
+# the raw data into the counts of events and exposure needed for analysis.
+# 
+# Data Preparation
+# 
+# We will start by reading the data and collapsing over sex, and will then compute 
+# events and exposure to reproduce Table 7.1 in the lecture notes.
+
+somoza <- read.dta("http://data.princeton.edu/wws509/datasets/somoza.dta")
+
+s <- aggregate(dead ~ cohort + age, data=somoza, FUN=sum)
+
+s$alive <- aggregate(alive ~ cohort + age, data=somoza, FUN=sum)[,"alive"]
+
+s <- s[order(s$cohort, s$age),]
+
+# The next step is to compute exposure time. We proceed by cohort, sum all dead and 
+# alive to get the total number in the cohort, and then proceed by age subtract 
+# those dying or still alive in each each group to obtain the number entering and 
+# exiting each age group. Exposure is then the number in the mid-point times the 
+# width of the age group, and I chose to express it in years.
+
+w <- c(1,2,3,6,12,36,60,0)/12
+
+s$exposure <- 0
+
+for(cohort in levels(s$cohort)) {
+     i <- which(s$cohort == cohort)
+     data <- s[i,]
+     n <- sum(data$alive + data$dead)
+     exit <- n - cumsum(data$alive + data$dead)
+     enter <- c(n, exit[-length(exit)])
+     s[i,"exposure"] <- w*(enter+exit)/2
+   }
+
+co <- subset(s, age != "10+ years")
+
+co$age <- factor(co$age) # dropping level 10+
+
+names(co)[3] <- "deaths"
+
+
+# After calculating exposure I dropped kids older than ten, as we are only interested
+# in survival to age ten. I also renamed "dead" to "deaths", which makes more sense. 
+# The data are now ready for analysis.
+
+# In preparation for model fitting I calculate the offset or log of exposure and add 
+# it to the data frame.
+
+co$os <- log(co$exposure)
+
+# Now on to the additive model with main effects of age and cohort, which is 
+# equivalent to a proportional hazards model:
+
+ph <- glm(deaths ~ age + cohort + offset(os), family=poisson, data=co)
+
+summary(ph)$coefficients
+
+
+# Let us calculate the fitted life table shown in Table 7.4 of the lecture notes. 
+# The predict command following a Poisson regression has and argument type="response" 
+# to calculate the expected number of events, which we then divide by exposure to 
+# obtain fitted rates. (An alternative is to leave out the typeargument to obtain 
+# the linear predictor, substract the offset, and exponentiate to obtain the rate. 
+# I'll let you verify that you get the same prediction.)
+
+co$hazard <- predict(ph, type="response")/co$exposure
+
+# At this point recall that the age intervals have different widths. We just don't 
+# need the width for 10+. We then loop by cohort, calculate the cumulative hazard 
+# by summing the product of the hazard in each age by the width of the interval, and 
+# then exponentiate the negative cumulative hazard to get the survival function:
+
+w <- w[-8]
+
+co$survival <- 0
+
+for(cohort in levels(co$cohort)) {
+     i <- which(co$cohort == cohort)
+     Hazard <- cumsum(co$hazard[i] * w)
+     co$survival[i] <- exp(-Hazard)
+   }
+
+# Rather than list the data frame I will tabulate the survival by age and cohort:
+  
+S <- tapply(co$survival,list(co$age,co$cohort),function(x) round(x,4))
+S
+
+
+
+
+
+
+
+
+
+
+
+
 ##########################################################
 
 #         Make fake data

@@ -1,3 +1,125 @@
+n.years <- 4
+periods <- c("Apr-May", "Jun-Aug", "Sep-Nov", "Dec-Feb", "Mar")
+w <- c(2, 3, 3, 3, 1)/12
+
+
+
+
+fakewolf<-data.frame(wolfID=1:100)
+fakewolf$start<-round(runif(100,0,47))
+fakewolf$stop<-round(runif(100, fakewolf$start, 68))
+fakewolf$fail<-ifelse(fakewolf$stop<49, rbinom(100,1,0.5), 0)
+fakewolf$durat<-fakewolf$stop-fakewolf$start+1
+fakewolf$durat[fakewolf$durat>48]=48
+fakewolf$year1<-NA
+fakewolf$year2<-NA
+fakewolf$year3<-NA
+fakewolf$year4<-NA
+
+fakewolf$year1<-ifelse(fakewolf$start<12, 1, 0)
+fakewolf$year2<-ifelse( (fakewolf$start<24 & fakewolf$stop>11), 1, 0)
+fakewolf$year3<-ifelse( (fakewolf$start<36 & fakewolf$stop>23), 1, 0)
+fakewolf$year4<-ifelse( (fakewolf$start<48 & fakewolf$stop>35), 1, 0)
+
+
+fakewolf$int1<-ifelse(fakewolf$start<breaks[1], 1, 0)
+fakewolf$int2<-ifelse((fakewolf$start<breaks[2] & fakewolf$stop>breaks[2]), 1, 0)
+fakewolf$int3<-ifelse((fakewolf$start<breaks[3] & fakewolf$stop>breaks[3]), 1, 0)
+fakewolf$int4<-ifelse((fakewolf$start<breaks[4] & fakewolf$stop>breaks[4]), 1, 0)
+fakewolf$int5<-ifelse((fakewolf$start<breaks[5] & fakewolf$stop>breaks[5]), 1, 0)
+fakewolf$int6<-ifelse((fakewolf$start<breaks[6] & fakewolf$stop>breaks[6]), 1, 0)
+fakewolf$int7<-ifelse((fakewolf$start<breaks[7] & fakewolf$stop>breaks[7]), 1, 0)
+fakewolf$int8<-ifelse((fakewolf$start<breaks[8] & fakewolf$stop>breaks[8]), 1, 0)
+fakewolf$int9<-ifelse((fakewolf$start<breaks[9] & fakewolf$stop>breaks[9]), 1, 0)
+fakewolf$int10<-ifelse((fakewolf$start<breaks[10] & fakewolf$stop>breaks[10]), 1, 0)
+fakewolf$int11<-ifelse((fakewolf$start<breaks[11] & fakewolf$stop>breaks[11]), 1, 0)
+fakewolf$int12<-ifelse((fakewolf$start<breaks[12] & fakewolf$stop>breaks[12]), 1, 0)
+fakewolf$int13<-ifelse((fakewolf$start<breaks[13] & fakewolf$stop>breaks[13]), 1, 0)
+fakewolf$int14<-ifelse((fakewolf$start<breaks[14] & fakewolf$stop>breaks[14]), 1, 0)
+fakewolf$int15<-ifelse((fakewolf$start<breaks[15] & fakewolf$stop>breaks[15]), 1, 0)
+fakewolf$int16<-ifelse((fakewolf$start<breaks[16] & fakewolf$stop>breaks[16]), 1, 0)
+fakewolf$int17<-ifelse((fakewolf$start<breaks[17] & fakewolf$stop>breaks[17]), 1, 0)
+fakewolf$int18<-ifelse((fakewolf$start<breaks[18] & fakewolf$stop>breaks[18]), 1, 0)
+fakewolf$int19<-ifelse((fakewolf$start<breaks[19] & fakewolf$stop>breaks[19]), 1, 0)
+fakewolf$int20<-ifelse((fakewolf$start<breaks[20] & fakewolf$stop>breaks[20]), 1, 0)
+
+wolfdat2<-gather(fakewolf, "Interval", "Value", 10:29 )
+wolfdat2 <- wolfdat2[order(wolfdat2$wolfID, wolfdat2$Interval),]
+wolfdat2<-wolfdat2[!wolfdat2$Value==0,]
+
+wolfdat2$Interval[wolfdat2$Interval=="int1"]<-1
+wolfdat2$Interval[wolfdat2$Interval=="int2"]<-2
+wolfdat2$Interval[wolfdat2$Interval=="int3"]<-3
+wolfdat2$Interval[wolfdat2$Interval=="int4"]<-4
+wolfdat2$Interval[wolfdat2$Interval=="int5"]<-5
+wolfdat2$Interval[wolfdat2$Interval=="int6"]<-6
+wolfdat2$Interval[wolfdat2$Interval=="int7"]<-7
+wolfdat2$Interval[wolfdat2$Interval=="int8"]<-8
+wolfdat2$Interval[wolfdat2$Interval=="int9"]<-9
+wolfdat2$Interval[wolfdat2$Interval=="int10"]<-10
+wolfdat2$Interval[wolfdat2$Interval=="int11"]<-11
+wolfdat2$Interval[wolfdat2$Interval=="int12"]<-12
+wolfdat2$Interval[wolfdat2$Interval=="int13"]<-13
+wolfdat2$Interval[wolfdat2$Interval=="int14"]<-14
+wolfdat2$Interval[wolfdat2$Interval=="int15"]<-15
+wolfdat2$Interval[wolfdat2$Interval=="int16"]<-16
+wolfdat2$Interval[wolfdat2$Interval=="int17"]<-17
+wolfdat2$Interval[wolfdat2$Interval=="int18"]<-18
+wolfdat2$Interval[wolfdat2$Interval=="int19"]<-19
+wolfdat2$Interval[wolfdat2$Interval=="int20"]<-20
+wolfdat2<-wolfdat2[,-11]
+
+
+wolfdat2 <- mutate(wolfdat2, 
+                   interval=factor(as.numeric(Interval), labels=paste("(", c(0,breaks[1:19]), 
+                                                          ",", 
+                                                          c(breaks[1:19],breaks[20]), 
+                                                          "]", sep="")))
+wolfdat2<-mutate(wolfdat2, num.months=factor(as.numeric(Interval), 
+                                             labels=paste(rep(c(2,3,3,3,1),4))))
+
+wolfdat2 <- wolfdat2[order(wolfdat2$wolfID, as.numeric(wolfdat2$Interval)),]
+
+
+
+
+breaks<-c(c(2,5,8,11,12), 12+c(2,5,8,11,12), 24+c(2,5,8,11,12),36+c(2,5,8,11,12))
+breaks2<-c(c(3,6,9,12,13), 12+c(3,6,9,12,13), 24+c(3,6,9,12,13),36+c(3,6,9,12,13))
+
+wolfdat<-survSplit(Surv(durat, fail)~., data=fakewolf, cut=breaks, 
+                   episode="interval", start="start.int")
+
+wolfdat <- mutate(wolfdat, exposure = durat - start.int, 
+                  interval = factor(interval,  
+                                    labels = paste("(", c(0,breaks[1:19]), ",", 
+                                                   c(breaks[1:19],breaks[20]), "]", sep=""))) %>%
+  rename(events = fail)
+wolfdat$Year<-ifelse(wolfdat$start.int<12, 1, 
+                     ifelse(wolfdat$start.int<24, 2, 
+                            ifelse(wolfdat$start.int<36, 3, 4)))
+wolfdat3<-wolfdat[!((wolfdat$start.int+3)<wolfdat$start),]
+
+
+
+
+
+
+
+
+
+
+
+
+wolfdat2<-data.frame(Period=rep(periods, 4), Year=c(rep(1,5), rep(2,5), rep(3,5),
+                                                    rep(4,5)))
+
+
+
+
+
+
+
+
 N.surv = 100
 round=2
 x1 = rbinom(N.surv,size=1,prob=0.5)
