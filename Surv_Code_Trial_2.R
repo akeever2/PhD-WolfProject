@@ -1,3 +1,103 @@
+
+
+library(R2jags)
+library(mcmcplots)
+
+
+sink("survival.txt")
+cat("
+    model{
+    
+      # Priors
+        b0.surv ~ dnorm(0,0.001)
+
+        for(i in 1:nyrs){
+          bYR.surv[i] ~ dnorm(0,0.001)
+        }
+
+        for(i in 1:npds){
+          bPD.surv[i] ~ dnorm(0,0.001)
+        }
+
+        
+
+      # Likelihood
+        #for(t in 1:nyears){
+          for(i in 1:n){
+            S[i] ~ dpois(mu.surv[i])
+            log(mu.surv[i]) <- logEX[i] + b0.surv + bYR.surv[Year[i]] + 
+                              bPD.surv[Period[i]]
+          }
+        #}
+    
+      # Predicted values
+        for(i in 1:n){
+          preds[i] <- logEX[i] +b0.surv + bYR.surv[Year[i]] + bPD.surv[Period[i]]
+          hazard[i] <- exp(preds[i]-logEX[i])
+        }
+
+      # # Cumulative hazard and survival 
+      #   for(yr in Year){
+      #     H[Year[yr[1]]] <- hazard[Year[yr[1]]]
+      # 
+      #     for(i in 2:npds){
+      #       H[Year[yr[i]]] <- H[Year[yr[i-1]]] + hazard[Year[yr[i]]] * w[Period[i]]
+      #     }
+      #   }
+    
+
+
+    
+    }
+    ", fill=TRUE)
+
+sink()
+
+
+win.data <- list("logEX"=log(co$exposure), "n"=nrow(co), "Year"=co$cohort, 
+                 "Period"=co$age, "S"=co$deaths, "npds"=length(unique(co$age)),
+                 "nyrs"=length(unique(co$cohort)), "w"=w)
+
+
+#  Initial Values	
+inits <- function(){list()}
+
+
+# Parameters to keep track of and report
+params <- c("H", "hazard", "b0.surv", "bYR.surv", "bPD.surv") 
+
+
+# MCMC Settings 
+ni <- 1000
+nt <- 2
+nb <- 250
+nc <- 3
+
+
+# Call JAGS 
+out <- jags(win.data, inits, params, "survival.txt", n.chains=nc, n.thin=nt, n.iter=ni, 
+            n.burnin=nb, jags.module = c("glm", "dic"))
+
+print(out, dig=2)
+
+mcmcplot(out)
+
+
+
+
+
+
+for(cohort in levels(co$cohort)) {
+  i <- which(co$cohort == cohort)
+  Hazard <- cumsum(co$hazard[i] * w)
+  co$survival[i] <- exp(-Hazard)
+}
+
+
+
+
+
+
 n.years <- 4
 periods <- c("Apr-May", "Jun-Aug", "Sep-Nov", "Dec-Feb", "Mar")
 w <- c(2, 3, 3, 3, 1)/12
