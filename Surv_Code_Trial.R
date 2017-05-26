@@ -481,9 +481,11 @@ fit <- coxph(Surv(time, status)~x, data=datum)
 survs <- survfit(fit, newdata=data.frame(x=1))
 plot(survs)
 
-fit <- coxph(Surv(time2, status)~x, data=datum)
+fit <- coxph(Surv(y, event)~x)
 survs <- survfit(fit, newdata=data.frame(x=1))
+survs2 <- survfit(fit, newdata=data.frame(x=0))
 plot(survs)
+lines(survs2)
 
 
 n = 100

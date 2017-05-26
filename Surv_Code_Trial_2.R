@@ -2,6 +2,9 @@
 
 library(R2jags)
 library(mcmcplots)
+library(survival)
+library(dplyr)
+library(tidyr)
 
 
 sink("survival.txt")
@@ -9,7 +12,7 @@ cat("
     model{
     
       # Priors
-        b0.surv ~ dnorm(0,0.001)
+        #b0.surv ~ dnorm(0,0.001)
 
         for(i in 1:nyrs){
           bYR.surv[i] ~ dnorm(0,0.001)
@@ -22,55 +25,57 @@ cat("
         
 
       # Likelihood
-        #for(t in 1:nyears){
-          for(i in 1:n){
-            S[i] ~ dpois(mu.surv[i])
-            log(mu.surv[i]) <- logEX[i] + b0.surv + bYR.surv[Year[i]] + 
-                              bPD.surv[Period[i]]
-          }
-        #}
+        for(i in 1:n){
+          death[i] ~ dpois(mu.surv[i])
+          log(mu.surv[i]) <- logEX[i] + bYR.surv[Year[i]] + 
+                            bPD.surv[Period[i]]
+        }
     
       # Predicted values
         for(i in 1:n){
-          preds[i] <- logEX[i] +b0.surv + bYR.surv[Year[i]] + bPD.surv[Period[i]]
+          preds[i] <- logEX[i] + bYR.surv[Year[i]] + bPD.surv[Period[i]]
           hazard[i] <- exp(preds[i]-logEX[i])
         }
 
-      # # Cumulative hazard and survival 
-      #   for(yr in Year){
-      #     H[Year[yr[1]]] <- hazard[Year[yr[1]]]
-      # 
-      #     for(i in 2:npds){
-      #       H[Year[yr[i]]] <- H[Year[yr[i-1]]] + hazard[Year[yr[i]]] * w[Period[i]]
-      #     }
-      #   }
-    
+       # Cumulative hazard and survival 
+        for(yr in 1:nyrs){
+          for(i in (yr * npds - (npds - 1))){
+            H[i] <- hazard[i] * w[Period[i]]
+          }
+            
+          for(i in (yr * npds - (npds - 1) + 1):(npds * yr)){
+            H[i] <- H[i-1] + hazard[i] * w[Period[i]]
+          }
+        }
 
+        for(i in 1:n){
+          S[i] <- exp(-H[i])
+        }
 
-    
     }
     ", fill=TRUE)
 
 sink()
 
 
-win.data <- list("logEX"=log(co$exposure), "n"=nrow(co), "Year"=co$cohort, 
-                 "Period"=co$age, "S"=co$deaths, "npds"=length(unique(co$age)),
-                 "nyrs"=length(unique(co$cohort)), "w"=w)
+win.data <- list("logEX"=log(datum$exposure), "n"=length(datum$exposure), "Year"=datum$Year, 
+                 "Period"=datum$Period, "death"=datum$deaths, "npds"=length(unique(datum$Period)),
+                 "nyrs"=length(unique(datum$Year)), "w"=w)
 
 
 #  Initial Values	
-inits <- function(){list()}
+inits <- function(){list(bYR.surv=runif(3, -1, 1), 
+                         bPD.surv=runif(5, -5, -1))}
 
 
 # Parameters to keep track of and report
-params <- c("H", "hazard", "b0.surv", "bYR.surv", "bPD.surv") 
+params <- c("H", "hazard", "bYR.surv", "bPD.surv", "S") 
 
 
 # MCMC Settings 
-ni <- 1000
+ni <- 10000
 nt <- 2
-nb <- 250
+nb <- 2500
 nc <- 3
 
 
@@ -87,11 +92,231 @@ mcmcplot(out)
 
 
 
-for(cohort in levels(co$cohort)) {
-  i <- which(co$cohort == cohort)
-  Hazard <- cumsum(co$hazard[i] * w)
-  co$survival[i] <- exp(-Hazard)
+
+data.fn <- function(bYR.surv.range = c(-1, 0.5), bPD.surv.range = c(-5,-2), 
+                    bHarv.surv = -2.5, w = c(2, 3, 3, 3, 1), nyears = 3, 
+                    nperiods = 5, Nsurv = 100){
+  
+  # Make empty vectors to hold values
+  hazard <-0
+  survival<-0
+  deaths<-0
+  exposure<-0
+  
+  # Make Year and Period covariate
+  Year <- rep(1:nyears, nperiods)
+  Year <- Year[order(Year)]
+  Period <- rep(1:nperiods, nyears)
+  
+  # Make coefficients based on ranges
+  bYR.surv <- runif(nyears, bYR.surv.range[1], bYR.surv.range[2])
+  bPD.surv <- runif(nperiods, bPD.surv.range[1], bPD.surv.range[2])
+  bPD.surv <- bPD.surv[order(bPD.surv)]
+  
+  # Baseline hazard
+  for(i in 1:(nyears * nperiods)){
+    hazard[i] <- exp(bYR.surv[Year[i]] + bPD.surv[Period[i]])
+  }
+  
+  # Associated cumulative hazard and survival
+  Year <- as.factor(Year)
+  
+  for(yr in levels(Year)) {
+    i <- which(Year == yr)
+    Hazard <- cumsum(hazard[i] * w)
+    survival[i] <- exp(-Hazard)
+  }
+  
+  
+  # Expected survival time for individuals??
+  
+  for(yr in 1:nyears){
+    for(i in (yr * nperiods - (nperiods - 1))){
+      exposure[i] <- Nsurv * w[Period[i]] / 2
+      deaths[i] <- rpois(1, hazard[i] * exposure[i])
+    }
+    
+    for(i in (yr * nperiods - (nperiods - 1) + 1):(nperiods * yr)){
+      exposure[i] <- (Nsurv - sum(deaths[(yr * nperiods - (nperiods -1)):(i-1)])) * 
+        w[Period[i]] / 2
+      deaths[i] <- rpois(1, hazard[i] * exposure[i])
+    }
+  }
+  
+  return(list(deaths=deaths, exposure=exposure, hazard=hazard, survival=survival,
+              bYR.surv=bYR.surv, bPD.surv=bPD.surv, Year=Year, Period=Period)) 
+  
 }
+
+
+datum<-data.fn()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+data.fn <- function(bYR.surv.range = c(-1, 0.5), bPD.surv.range = c(-5,-2), 
+                    bHarv.surv = -2.5, w = c(2, 3, 3, 3, 1), nyears = 3, 
+                    nperiods = 5, Nsurv = 100){
+  
+  # Make empty vectors to hold values
+  hazard <-0
+  survival<-0
+  deaths<-0
+  exposure<-0
+  
+  # Make Year and Period covariate
+  Year <- rep(1:nyears, nperiods)
+  Year <- Year[order(Year)]
+  Period <- rep(1:nperiods, nyears)
+  
+  # Make coefficients based on ranges
+  bYR.surv <- runif(nyears, bYR.surv.range[1], bYR.surv.range[2])
+  bPD.surv <- runif(nperiods, bPD.surv.range[1], bPD.surv.range[2])
+  bPD.surv <- bPD.surv[order(bPD.surv)]
+  
+  # Baseline hazard
+  for(i in 1:(nyears * nperiods)){
+    hazard[i] <- exp(bYR.surv[Year[i]] + bPD.surv[Period[i]])
+  }
+  
+  # Associated cumulative hazard and survival
+  Year <- as.factor(Year)
+  
+  for(yr in levels(Year)) {
+    i <- which(Year == yr)
+    Hazard <- cumsum(hazard[i] * w)
+    survival[i] <- exp(-Hazard)
+  }
+  
+  
+  # Expected survival time for individuals??
+  
+  survtime.1 <- rexp(Nsurv, hazard[1:5])
+  survtime.2 <- rexp(Nsurv, hazard[6:10])
+  survtime.3 <- rexp(Nsurv, hazard[11:15])
+  censort.1 = 12 * runif(Nsurv,0,1)
+  censort.2 = 12 * runif(Nsurv,0,1)
+  censort.3 = 12 * runif(Nsurv,0,1)
+  
+  event.1 = as.numeric(censort.1 > survtime.1)
+  event.2 = as.numeric(censort.2 > survtime.2)
+  event.3 = as.numeric(censort.3 > survtime.3)
+  
+  y.1 = survtime.1; 
+  y.1[event.1==0] = censort.1[event.1==0]
+  y.2 = survtime.2; 
+  y.2[event.2==0] = censort.2[event.2==0]
+  y.3 = survtime.3; 
+  y.3[event.3==0] = censort.3[event.3==0]
+  
+  
+  breaks=c(2,5,8,11,12)
+  
+  dat.1 <- data.frame("duration"=round(y.1 +.5), "event"=event.1, 
+                      "id"=c(1:Nsurv))
+  dat.2 <- data.frame("duration"=round(y.2 +.5), "event"=event.2, 
+                      "id"=c(1:Nsurv))
+  dat.3 <- data.frame("duration"=round(y.3 +.5), "event"=event.3, 
+                      "id"=c(1:Nsurv))
+  
+  
+  dat.1 <- survSplit(Surv(duration, event) ~ ., data=dat.1, cut=breaks,
+                         episode="interval", start="start")
+  dat.2 <- survSplit(Surv(duration, event) ~ ., data=dat.2, cut=breaks,
+                         episode="interval", start="start")
+  dat.3 <- survSplit(Surv(duration, event) ~ ., data=dat.3, cut=breaks,
+                         episode="interval", start="start")
+
+  dat.1 <- mutate(dat.1, 
+                 interval=factor(as.numeric(interval), 
+                                 labels=paste("(", c(0,breaks[1:4]), ",", 
+                                              c(breaks[1:4],breaks[5]), 
+                                              "]", sep="")), 
+                 num.months=factor(as.numeric(interval), 
+                                   labels=paste(c(2,3,3,3,1))), 
+                 exposure=duration - start)
+  dat.2 <- mutate(dat.2, 
+                  interval=factor(as.numeric(interval), 
+                                  labels=paste("(", c(0,breaks[1:4]), ",", 
+                                               c(breaks[1:4],breaks[5]), 
+                                               "]", sep="")), 
+                  num.months=factor(as.numeric(interval), 
+                                    labels=paste(c(2,3,3,3,1))), 
+                  exposure=duration - start)
+  dat.3 <- mutate(dat.3, 
+                  interval=factor(as.numeric(interval), 
+                                  labels=paste("(", c(0,breaks[1:4]), ",", 
+                                               c(breaks[1:4],breaks[5]), 
+                                               "]", sep="")), 
+                  num.months=factor(as.numeric(interval), 
+                                    labels=paste(c(2,3,3,3,1))), 
+                  exposure=duration - start)
+  
+  
+  
+  dat.1 <- dat.1[order(dat.1$id, as.numeric(dat.1$interval)),]
+  dat.2 <- dat.2[order(dat.2$id, as.numeric(dat.2$interval)),]
+  dat.3 <- dat.3[order(dat.3$id, as.numeric(dat.3$interval)),]
+  
+  agr.1 <- aggregate(exposure ~ interval, data=dat.1, FUN=sum) %>% 
+    mutate(year=1)
+  agr.2 <- aggregate(exposure ~ interval, data=dat.2, FUN=sum) %>% 
+    mutate(year=2) 
+  agr.3 <- aggregate(exposure ~ interval, data=dat.3, FUN=sum) %>% 
+    mutate(year=3) 
+  
+  total.dat <- bind_rows(agr.1,agr.2,agr.3)
+
+  for(yr in 1:nyears){
+    for(i in (yr * nperiods - (nperiods - 1))){
+      deaths[i] <- rpois(1, hazard[i] * total.dat$exposure[i])
+    }
+    
+    for(i in (yr * nperiods - (nperiods - 1) + 1):(nperiods * yr)){
+      deaths[i] <- rpois(1, hazard[i] * total.dat$exposure[i])
+    }
+  }
+  
+  
+  
+  # # Determine number of deaths using GLM with offset
+  # lm.1 <- exp(log(agr.1$exposure) + bYR.surv[1] + sum(bPD.surv))
+  # lm.2 <- exp(log(agr.2$exposure) + bYR.surv[2] + sum(bPD.surv))
+  # lm.3 <- exp(log(agr.3$exposure) + bYR.surv[3] + sum(bPD.surv))
+  # deaths.1 <- rpois(nperiods, lm.1)
+  
+  return(list(deaths=deaths, exposure=total.dat$exposure, hazard=hazard, survival=survival,
+              bYR.surv=bYR.surv, bPD.surv=bPD.surv, Year=Year, Period=Period)) 
+  
+}
+
+
+datum<-data.fn()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -171,12 +396,12 @@ wolfdat2<-wolfdat2[,-11]
 
 
 wolfdat2 <- mutate(wolfdat2, 
-                   interval=factor(as.numeric(Interval), labels=paste("(", c(0,breaks[1:19]), 
+                   interval=factor(as.numeric(Interval), labels=paste("(", c(0,breaks[1:4]), 
                                                           ",", 
-                                                          c(breaks[1:19],breaks[20]), 
+                                                          c(breaks[1:4],breaks[5]), 
                                                           "]", sep="")))
 wolfdat2<-mutate(wolfdat2, num.months=factor(as.numeric(Interval), 
-                                             labels=paste(rep(c(2,3,3,3,1),4))))
+                                             labels=paste(c2,3,3,3,1)))
 
 wolfdat2 <- wolfdat2[order(wolfdat2$wolfID, as.numeric(wolfdat2$Interval)),]
 
@@ -225,7 +450,7 @@ round=2
 x1 = rbinom(N.surv,size=1,prob=0.5)
 x = t(rbind(x1))
 censortime = runif(N.surv,0,1)
-survtime= rexp(N.surv,rate=exp(-.5*x1))
+survtime= rexp(N.surv,rate=exp(-1.5*x1))
 survtime = round(survtime,digits=round)
 event = as.numeric(censortime>survtime)
 y = survtime; 
@@ -234,6 +459,12 @@ t=sort(unique(y[event==1]))
 t=c(t,max(censortime))
 bigt=length(t)-1
 
+
+fit <- coxph(Surv(y, event)~x)
+survs <- survfit(fit, newdata=data.frame(x=1))
+survs2 <- survfit(fit, newdata=data.frame(x=0))
+plot(survs)
+lines(survs2)
 
 
 
