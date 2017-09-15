@@ -1,12 +1,96 @@
 
-
-
-
 library(R2jags)
 library(mcmcplots)
 library(survival)
 library(dplyr)
 library(tidyr)
+
+
+
+sink("survival.txt")
+cat("
+    model{
+    
+    # Priors
+
+      for(i in 1:ints){
+        b.int[i] ~ dnorm(0,0.001)
+      }
+
+      for(i in 1:10){
+        b[i] ~ dnorm(0, 0.001)
+      }
+    
+    
+    
+    # Likelihood
+
+      for(i in 1:nobs){
+        event[i] ~ dbern(mu[i])
+        cloglog(mu[i]) <- b.int[interval[i]] + b[1] * workprg[i] + 
+                          b[2] * priors[i] + b[3] * tserved[i] + b[4] * 
+                          felon[i] + b[5] * alcohol[i] + b[6] * 
+                          drugs[i] + b[7] * black[i] + b[8] * 
+                          married[i] + b[9] * educ[i] + b[10] * age[i]
+      }
+    
+
+
+    # Predicted values
+      for(i in 1:nobs){
+        hazard[i] <- -log(1 - mu[i])
+      }
+    
+    # Cumulative hazard and survival 
+      
+    
+    }
+    ", fill=TRUE)
+
+sink()
+
+
+win.data <- list("ints" = length(unique(recidx$interval)), 
+                 "nobs" = nrow(recidx), "event" = recidx$fail, 
+                 "interval" = recidx$interval, "workprg" = 
+                   recidx$workprg, "priors" = recidx$priors, 
+                 "tserved" = recidx$tserved, "felon" = recidx$felon, 
+                 "alcohol" = recidx$alcohol, "drugs" = recidx$drugs, 
+                 "black" = recidx$black, "married" = recidx$married, 
+                 "educ" = recidx$educ, "age" = recidx$age)
+
+
+#  Initial Values	
+inits <- function(){list()}
+
+
+# Parameters to keep track of and report
+params <- c("hazard", "b", "b.int") 
+
+
+# MCMC Settings 
+ni <- 10000
+nt <- 2
+nb <- 2500
+nc <- 3
+
+
+# Call JAGS 
+out <- jags(win.data, inits, params, "survival.txt", n.chains=nc, n.thin=nt, n.iter=ni, 
+            n.burnin=nb, jags.module = c("glm", "dic"))
+
+print(out, dig=2)
+
+mcmcplot(out)
+
+
+
+
+
+
+
+
+
 
 
 sink("survival.txt")

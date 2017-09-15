@@ -1,3 +1,42 @@
+# Example from http://data.princeton.edu/pop509/recid3.html
+
+# Let's have another look at the recidivism data. We will split duration into single years with an open-ended category at 5+ and fit a piecewise exponential model with the same covariates as Wooldridge.
+# 
+# We will then treat the data as discrete, assuming that all we know is that recidivism occured somewhere in the year. We will fit a binary data model with a logit link, which corresponds to the discrete time model, and using a complementary-log-log link, which corresponds to a grouped continuous time model.
+
+library(foreign)
+library(dplyr)
+
+recid <- read.dta("http://www.stata.com/data/jwooldridge/eacsap/recid.dta")
+
+library(survival)
+
+recid$fail <- 1 - recid$cens
+
+recidx <- survSplit(recid, cut = seq(12, 60, 12), start = "t0", end = "durat", event = "fail", episode = "interval")
+
+labels <- paste("(",seq(0,60,12),",",c(seq(12,60,12),81), "]",sep="")
+
+recidx <- mutate(recidx, exposure = durat - t0, interval = factor(interval + 1, labels = labels))
+
+mf <-  fail ~  interval + workprg + priors + tserved + felon + alcohol + drugs + black + married + educ + age
+
+pwe <- glm(mf, offset = log(exposure), data = recidx, family = poisson)
+
+coef(summary(pwe))
+
+
+# Finally we use a complementary log-log link
+
+cloglog <- glm(mf, data = recidx, family = binomial(link = cloglog))
+
+coef(summary(cloglog))
+
+
+
+
+
+
 
 # Example from http://data.princeton.edu/wws509/R/recidivism.html, German Rodriguez 
 # at Princeton University GLM class. 
