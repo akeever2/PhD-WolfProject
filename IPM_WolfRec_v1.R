@@ -39,7 +39,7 @@ cat("
       
       for(k in 1:(nyears-1)){
         b0.phi[k] ~ dnorm(0,0.001)
-        b0.gamma[k] ~ dnorm(0,0.001)
+        b0.colo[k] ~ dnorm(0,0.001)
       }#k
       
       
@@ -322,7 +322,7 @@ cat("
     for(i in 1:ngroups){
       for(k in 2:nyears){
         for(r in 1:nregions){
-          g.mu[i,k,r] <- G[i,k-1,r] * annual.s[k-1,r] * (1 + imm.group[k-1] - em.group[k-1]) + gamma[i,k-1,r] # + sigma.proc.group[k-1,r])
+          g.mu[i,k,r] <- G[i,k-1,r] * annual.s[k-1,r] * (1 - em.group[k-1]) + gamma[i,k-1,r] # + sigma.proc.group[k-1,r])
           G[i,k,r] ~ dnorm(g.mu[i,k,r], 1/(g.mu[i,k,r]+.01))
         }#r
       }#k
@@ -480,8 +480,7 @@ cat("
     
     for(k in 1:nyears){
       for(r in 1:nregions){
-        #s[k,r] ~ dnorm(s2[k,r,1], 1 / (s2[k,r,2] * s2[k,r,2])) 
-        s[k,r] <- 0.8
+        s[k,r] ~ dnorm(s2[k,r,1], 1 / (s2[k,r,2] * s2[k,r,2])) 
         P[k,r] ~ dnorm(P2[k,r,1], 1 / (P2[k,r,2] * P2[k,r,2]))
         gamma.mean[k,r] ~ dnorm(gamma2[k,r,1], 1 / (gamma2[k,r,2] * gamma2[k,r,2]))
       }#r
