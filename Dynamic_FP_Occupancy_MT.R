@@ -8,7 +8,7 @@
 # akeever1122@gmail.com
 # github.com/akeever2
 # Montana Cooperative Wildlife Research Unit
-# May 2018
+# September 2018
 
 # Occupancy code adapted from Sarah B Bassing
 # sarah.bassing@gmail.com
@@ -18,10 +18,10 @@
 
 ###############################################################################/
 
-
+#### Background ####
 # This code uses the POM abundance estimation framework established by MFWP. It
 # uses patch occupancy models (POM) to estimate area occupied by wolves and then
-# divides by mean territory size to determine number of pack that fit into the
+# divides by mean territory size to determine number of packs that fit into the
 # area. We then multiply by average group size to get an abundance estiamte for
 # each year. This code also accounts for territory overlap and lone wolves in
 # the same way that MFWP has done in the past. 
@@ -55,12 +55,24 @@
 
 
 
-#### Input & Format Data and Load Packages ####
+#### Hard-Coded Values ####
+
+# Set the number of sites, number of occasions, and number of years
+nsites <- 695
+noccs <- 5
+nyears <- 10
+
+
+# Hard code in territory overlap
+T.overlap <- c(1.12, 1.08, 1.13, 1.16, 1.26, 1.27, 1.33, 1.24, 1.26, 1.32)
+
+
+
+#### Input & Format Data ####
 
 
 # Load the appropriate packages
 library(R2jags)
-library(mcmcplots)
 library(ggplot2)
 library(snowfall)
 
@@ -88,22 +100,16 @@ POM.Group <- read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData
 # array - site (row; 695) by occasion (column; 5) by year (3d; 10). You add
 # 1 to encounter histories because the data can't have 0s for JAGS. So the 
 # detection data are now 1, 2 and 3 instead of 0, 1, and 2. 
-y.occ <- array(unlist(encounter), dim=c(695, 5, 10))+1
-
-
-# Set the number of sites, number of occasions, and number of years
-nsites <- nrow(y.occ)
-noccs <- ncol(y.occ)
-nyears <- 10
-
-
-# Hard code in territory overlap and the average and SD of territory sizes
-T.overlap <- c(1.12, 1.08, 1.13, 1.16, 1.26, 1.27, 1.33, 1.24, 1.26, 1.32)
-mu.T <- 599.83
-sd.T <- 368.21
+y.occ <- array(unlist(encounter), dim=c(nsites, noccs, nyears))+1
 
 
 
+#### Data to Check ####
+
+# Check to make sure these covariates are referencing the right columns
+recPC <- sitecovs[,27:36]
+mu.G <- POM.Group[,2]
+sd.G <- POM.Group[,3]
 
 #### Model Code ####
 
@@ -184,19 +190,16 @@ cat("
     # Define State (z) conditional on parameters- Nmbr sites occupied
     
     for(i in 1:nsites){
-      logit.psi1[i] <- B0.psi1 + b.pc1.psi * PC1[i] + b.recPC.psi * recPC[i,1]       
-      logit(psi1[i]) <- logit.psi1[i]                                     
+      logit(psi1[i]) <- B0.psi1 + b.pc1.psi * PC1[i] + b.recPC.psi * recPC[i,1]
       z[i,1] ~ dbern(psi1[i])
     
       for(k in 1:(nyears-1)){
-        logit.phi[i,k] <- B0.phi + b.pc1.phi * PC1[i]  
-        logit.gamma[i,k] <- B0.colo[k] + b.pc1.colo * PC1[i] + b.recPC.colo * recPC[i,k+1] 
-        logit(phi[i,k]) <- logit.phi[i,k]
-        logit(gamma[i,k]) <- logit.gamma[i,k]
+        logit(phi[i,k]) <- B0.phi + b.pc1.phi * PC1[i]  
+        logit(gamma[i,k]) <- B0.colo[k] + b.pc1.colo * PC1[i] + b.recPC.colo * recPC[i,k+1]
       }#k
     
       for(k in 2:nyears){
-        muZ[i,k] <- z[i,k-1]*(1-phi[i,k-1]) + (1-z[i,k-1])*gamma[i,k-1]
+        muZ[i,k] <- z[i,k-1] * (1 - phi[i,k-1]) + (1 - z[i,k-1]) * gamma[i,k-1]
         z[i,k] ~ dbern(muZ[i,k])
       }#k
     }#i
@@ -214,12 +217,12 @@ cat("
     for(i in 1:nsites){
       for (j in 1:noccs){
         for(k in 1:nyears){			                                  
-          p[1,i,j,k,1] <- (1-p10[i,j,k])
-          p[1,i,j,k,2] <- (1-p11[i,j,k])
+          p[1,i,j,k,1] <- (1 - p10[i,j,k])
+          p[1,i,j,k,2] <- (1 - p11[i,j,k])
           p[2,i,j,k,1] <- p10[i,j,k]
-          p[2,i,j,k,2] <- (1-b[i,j,k])*p11[i,j,k]
+          p[2,i,j,k,2] <- (1 - b[i,j,k]) * p11[i,j,k]
           p[3,i,j,k,1] <- 0
-          p[3,i,j,k,2] <- b[i,j,k]*p11[i,j,k]
+          p[3,i,j,k,2] <- b[i,j,k] * p11[i,j,k]
         }#k
       }#j
     }#i
@@ -233,14 +236,12 @@ cat("
     for(i in 1:nsites){
       for(j in 1:noccs){
         for(k in 1:nyears){
-          multilogit.p11[i,j,k] <- B0.p11 + b.area.p11 * area[i] + b.huntdays.p11 * huntdays[i,j,k] + b.nonfrrds.p11 * nonforrds[i] + b.frrds.p11 * forrds[i] + b.acv.p11 * acv[i,j,k] + b.map.p11 * mapppn[i,j,k]
-          logit(p11[i,j,k]) <- multilogit.p11[i,j,k]
-          multilogit.p10[i,j,k] <- B0.p10 + b.acv.p10 * acv[i,j,k] + b.huntdays.p10 * huntdays[i,j,k] + b.nonfrrds.p10 * nonforrds[i] + b.frrds.p10 * forrds[i]
-          logit(p10[i,j,k]) <- multilogit.p10[i,j,k]
-          multilogit.b[i,j,k] <- B0.b
-          logit(b[i,j,k]) <- multilogit.b[i,j,k]
+          logit(p11[i,j,k]) <- B0.p11 + b.area.p11 * area[i] + b.huntdays.p11 * huntdays[i,j,k] + b.nonfrrds.p11 * nonforrds[i] + b.frrds.p11 * forrds[i] + b.acv.p11 * acv[i,j,k] + b.map.p11 * mapppn[i,j,k]
+          logit(p10[i,j,k]) <- B0.p10 + b.acv.p10 * acv[i,j,k] + b.huntdays.p10 * huntdays[i,j,k] + b.nonfrrds.p10 * nonforrds[i] + b.frrds.p10 * forrds[i]
+          logit(b[i,j,k]) <- B0.b
           
           y.occ[i,j,k] ~ dcat(p[,i,j,k,(z[i,k]+1)])
+
         }#k
       }#j
     }#i
@@ -250,12 +251,9 @@ cat("
     
     for(i in 1:nsites){
       psi[i,1] <- psi1[i]
-      growthr[i,1] <- 1
-      
+
       for (k in 2:nyears){
-        psi[i,k] <- psi[i,k-1]*(1-phi[i,k-1]) + (1-psi[i,k-1])*gamma[i,k-1]
-        growthr[i,k] <- psi[i,k]/psi[i,k-1]
-        turnover[i,k-1] <- (1 - psi[i,k-1]) * gamma[i,k-1]/psi[i,k]
+        psi[i,k] <- psi[i,k-1] * (1 - phi[i,k-1]) + (1 - psi[i,k-1]) * gamma[i,k-1]
       }#k
     }#i
     
@@ -270,40 +268,32 @@ cat("
     # into the estimates of pack size from the average territory size and area
     # area occupied by wolves
 
-    T ~ dnorm(mu.T, 1/(sd.T * sd.T))
-    T2 ~ dgamma(3.157, 0.00526)
-    T3 ~ dlnorm(6.22985815, 1/0.58728123)
+    # T ~ dgamma(3.157, 0.00526) # This is the gamma distribution for territory sizes in Montana
+    # T ~ dlnorm(6.22985815, 1 / 0.58728123)
 
     # Estimate number of packs from area occupied (A), territory size (T), and
     # territory overlap (T.overlap). Territory overlap is a fixed value for each
     # year that is supplied as data.
 
-    for(k in 1:nyears){
-      P[k] <- (A[k] / T)*T.overlap[k]
-    }
+    # for(k in 1:nyears){
+    #   P[k] <- (A[k] / T) * T.overlap[k]
+    # }
 
-    for(k in 1:nyears){
-      P2[k] <- (A[k] / T2)*T.overlap[k]
-    }
-
-     for(k in 1:nyears){
-      P3[k] <- (A[k] / T3)*T.overlap[k]
-    }
 
     # Pull in group count data to determine mean group size each year with error
 
-    for(k in 1:nyears){
-      G[k] ~ dnorm(mu.G[k], 1/(sd.G[k] * sd.G[k]))
-    }
+    # for(k in 1:nyears){
+    #   G[k] ~ dnorm(mu.G[k], 1 / (sd.G[k] * sd.G[k]))T(0,)
+    # }
 
 
     # Estimate abundance each year based on estimated # of packs (P) and mean group
     # size (G). Then, add on the lone wolves in the population
 
-    for(k in 1:nyears){
-      N.est[k] <- P3[k] * G[k]
-      N.total[k] <- N.est[k] * 1.125
-    }
+    # for(k in 1:nyears){
+    #   N.est[k] <- P3[k] * G[k]
+    #   N.total[k] <- N.est[k] * 1.125
+    # }
     
     
     
@@ -320,19 +310,19 @@ cat("
 sink()
 
 
-#### Set-up and Run Model ####
-# Bundle data for JAGs. Double check that recPC data and the mean group size
-# and SD group size are referencing the right columns for the covariate. 
+#### Run Model ####
+
+# Bundle data for JAGs. 
 win.data <- list("nsites"=nsites, "nyears"=nyears, "area"=sitecovs$AREASAMP,
                  "noccs"=noccs, "y.occ"=y.occ, "PC1"=sitecovs$PC1, 
-                 "recPC"=sitecovs[,27:36], 
-                 "huntdays"=array(unlist(HuntDays), dim=c(695, noccs, nyears)),
-                 "mapppn"=array(unlist(MapPPN), dim=c(695, noccs, nyears)),
+                 "recPC"=recPC, 
+                 "huntdays"=array(unlist(HuntDays), dim=c(nsites, noccs, nyears)),
+                 "mapppn"=array(unlist(MapPPN), dim=c(nsites, noccs, nyears)),
                  "nonforrds"=sitecovs$LOWUSENONFORESTRDS, 
                  "forrds"=sitecovs$LOWUSEFORESTRDS, 
-                 "acv"=array(unlist(ACV), dim=c(695, noccs, nyears)),
-                 "T.overlap" =T.overlap, "mu.T" = mu.T, "sd.T" = sd.T,
-                 "mu.G" = POM.Group[,2], "sd.G" = POM.Group[,3])
+                 "acv"=array(unlist(ACV), dim=c(nsites, noccs, nyears)),
+                 "T.overlap" =T.overlap, 
+                 "mu.G" = mu.G, "sd.G" = sd.G)
 
 
 # Set initial values for true state, z. Use the encounter history data to set z for each
@@ -358,7 +348,7 @@ inits <- function(){list(z=zst, B0.colo=runif((nyears-1),-6,-3), b.pc1.colo=runi
 #                          b.map.p11=runif(1,3,4), b.nonfrrds.p11=runif(1,-1,1), b.frrds.p11=runif(1,-1,1))}
 
 # Parameters to keep track of and report in the output file
-params <- c("P", "P2", "phi", "gamma", "psi", 
+params <- c("P", "phi", "gamma", "psi", 
             "p11", "p10", "b", "B0.phi",
             "B0.colo", "b.pc1.colo", 
             "b.recPC.colo", "B0.psi1", 
@@ -375,13 +365,13 @@ params <- c("P", "P2", "phi", "gamma", "psi",
             "b.frrds.p10",
             "b.acv.p10",
             "B0.p11", "B0.p10", "B0.b", "N.est", "N.total", "A", 
-            "T", "T2", "P3") 
+            "T") 
 
 
 # MCMC Settings 
-ni <- 5000
+ni <- 50000
 nt <- 2
-nb <- 700
+nb <- 10000
 nc <- 3
 
 
@@ -390,17 +380,14 @@ out <- jags(win.data, inits, params, "MTOccupancy.txt", n.chains=nc, n.thin=nt, 
             n.burnin=nb, jags.module = c("glm", "dic"))
 
 # Show summary of the output
-print(out, dig=2)
-
-# Check convergence with MCMC plots
-mcmcplot(out)
+# print(out, dig=2)
 
 
 jag.sum <- out$BUGSoutput$summary
 write.table(x=jag.sum, file="C:/Users/allison/Documents/Project/WolfData/OccupancyData/RJagsResults2018_Keever/MT_OccuResults2.txt", sep="\t")
+write.csv(x=jag.sum, file="C:/Users/allison/Documents/Project/WolfData/OccupancyData/RJagsResults2018_Keever/MT_OccuResults2.csv")
 
 
-#### Results Formatting and Plotting ####
 
 
 

@@ -132,9 +132,10 @@ group.g <- group[group$Count.Quality=="G" | group$Count.Quality=="M", ]
 
 # Make a new dataframe, g2,  with only the year, pack, recreation area, 
 # and count of groups from the good and moderate counts
+#### NOTE: check to see if using EoY counts gives better/different results ####
 g2 <- data.frame(year=group.g$YEAR, pack=group.g$Revised.Pack.Name, area=group.g$RECAREA,  
                  count=group.g$CountPlusRemovals)
-
+#### end NOTE ####
 
 # Change the data from long format to wide format
 g2 <-g2 %>% spread(year, count)
@@ -186,7 +187,7 @@ nobs =  nrow(y.surv)
 # Set my constants: em.group is a 10% dispersal rate from a pack, 
 # territory size is set to 600 sq km, and territory overlap is set to the 
 # values determined by FWP
-em.group <- 0.1
+em.group <- 0.08
 mu.T <- 599.83
 sd.T <- 368.21
 shape <- 3.15727
@@ -260,7 +261,7 @@ cat("
     
     # Random effect for year
     for(k in 1:(nyears-1)){
-      eps.surv[k] ~ dnorm (0, tau.surv)
+      eps.surv[k] ~ dnorm(0, tau.surv)
     }
     
     sigma.surv ~ dunif(0,100)
@@ -272,7 +273,7 @@ cat("
       b.period.surv[p] ~ dnorm(0,0.001)
     }
     
-    
+
     
     ## 1.4 Group priors
     
@@ -291,7 +292,17 @@ cat("
     ## 1.5 Recruitment priors
     
     # Priors for beta coefficients
-    B0.gam ~ dunif(-10,10)
+    B0.gam ~ dnorm(0,0.001)
+    B1.gam ~ dnorm(0,0.001)
+
+    # Random effect for year
+    # for(k in 1:nyears){
+    #   eps.gam[k] ~ dnorm(0, tau.gam)
+    # }
+    # 
+    # sigma.gam ~ dunif(0,100)
+    # tau.gam <- pow(sigma.gam, -2)
+    # var.gam <- pow(sigma.gam, 2)
     
     ############################################################
     
@@ -319,19 +330,16 @@ cat("
     # Define State (z) conditional on parameters- Nmbr sites occupied
     
     for(i in 1:nsites){
-      logit.psi1[i] <- B0.psi1 + b.pc1.psi * PC1[i] + b.recPC.psi * recPC[i,1]       
-      logit(psi1[i]) <- logit.psi1[i]                                     
+      logit(psi1[i]) <- B0.psi1 + b.pc1.psi * PC1[i] + b.recPC.psi * recPC[i,1]       
       z[i,1] ~ dbern(psi1[i])
       
       for(k in 1:(nyears-1)){
-        logit.phi[i,k] <- B0.phi + b.pc1.phi * PC1[i] 
-        logit.colo[i,k] <- B0.colo[k] + b.pc1.colo * PC1[i] + b.recPC.colo * recPC[i,k+1] 
-        logit(phi[i,k]) <- logit.phi[i,k]
-        logit(colo[i,k]) <- logit.colo[i,k]
+        logit(phi[i,k]) <- B0.phi + b.pc1.phi * PC1[i] 
+        logit(colo[i,k]) <- B0.colo[k] + b.pc1.colo * PC1[i] + b.recPC.colo * recPC[i,k+1] 
       }#k
       
       for(k in 2:nyears){
-        muZ[i,k] <- z[i,k-1]*phi[i,k-1] + (1-z[i,k-1])*colo[i,k-1]
+        muZ[i,k] <- z[i,k-1] * phi[i,k-1] + (1-z[i,k-1]) * colo[i,k-1]
         z[i,k] ~ dbern(muZ[i,k])
       }#k
     }#i
@@ -349,12 +357,12 @@ cat("
     for(i in 1:nsites){
       for (j in 1:noccs){
         for(k in 1:nyears){			                                  
-          p[1,i,j,k,1] <- (1-p10[i,j,k])
-          p[1,i,j,k,2] <- (1-p11[i,j,k])
+          p[1,i,j,k,1] <- (1 - p10[i,j,k])
+          p[1,i,j,k,2] <- (1 - p11[i,j,k])
           p[2,i,j,k,1] <- p10[i,j,k]
-          p[2,i,j,k,2] <- (1-b[i,j,k])*p11[i,j,k]
+          p[2,i,j,k,2] <- (1 - b[i,j,k]) * p11[i,j,k]
           p[3,i,j,k,1] <- 0
-          p[3,i,j,k,2] <- b[i,j,k]*p11[i,j,k]
+          p[3,i,j,k,2] <- b[i,j,k] * p11[i,j,k]
         }#k
       }#j
     }#i
@@ -369,12 +377,9 @@ cat("
     for(i in 1:nsites){
       for(j in 1:noccs){
         for(k in 1:nyears){
-          multilogit.p11[i,j,k] <- B0.p11 + b.area.p11 * area[i] + b.huntdays.p11 * huntdays[i,j,k] + b.nonfrrds.p11 * nonforrds[i] + b.frrds.p11 * forrds[i] + b.acv.p11 * acv[i,j,k] + b.map.p11 * mapppn[i,j,k]
-          logit(p11[i,j,k]) <- multilogit.p11[i,j,k]
-          multilogit.p10[i,j,k] <- B0.p10 + b.acv.p10 * acv[i,j,k] + b.huntdays.p10 * huntdays[i,j,k] + b.nonfrrds.p10 * nonforrds[i] + b.frrds.p10 * forrds[i]
-          logit(p10[i,j,k]) <- multilogit.p10[i,j,k]
-          multilogit.b[i,j,k] <- B0.b
-          logit(b[i,j,k]) <- multilogit.b[i,j,k]
+          logit(p11[i,j,k]) <- B0.p11 + b.area.p11 * area[i] + b.huntdays.p11 * huntdays[i,j,k] + b.nonfrrds.p11 * nonforrds[i] + b.frrds.p11 * forrds[i] + b.acv.p11 * acv[i,j,k] + b.map.p11 * mapppn[i,j,k]
+          logit(p10[i,j,k]) <- B0.p10 + b.acv.p10 * acv[i,j,k] + b.huntdays.p10 * huntdays[i,j,k] + b.nonfrrds.p10 * nonforrds[i] + b.frrds.p10 * forrds[i]
+          logit(b[i,j,k]) <- B0.b
           
           y.occ[i,j,k] ~ dcat(p[,i,j,k,(z[i,k]+1)])
         }#k
@@ -387,12 +392,9 @@ cat("
     
     for(i in 1:nsites){
       psi[i,1] <- psi1[i]
-      growthr[i,1] <- 1  
-      
+
       for (k in 2:nyears){                                          
-        psi[i,k] <- psi[i,k-1]*phi[i,k-1] + (1-psi[i,k-1])*colo[i,k-1]
-        growthr[i,k] <- psi[i,k]/psi[i,k-1]
-        turnover[i,k-1] <- (1 - psi[i,k-1]) * colo[i,k-1]/psi[i,k]
+        psi[i,k] <- psi[i,k-1] * phi[i,k-1] + (1 - psi[i,k-1]) * colo[i,k-1]
       }#k
     }#i
     
@@ -419,13 +421,12 @@ cat("
     ####################
     
     # Pull in data for the mean for territory size
-    T ~ dnorm(mu.T, 1/(sd.T * sd.T))
     T2 ~ dgamma(3.157, 0.00526)
     T3 ~ dlnorm(6.22985815, 1/0.58728123)
     
     # Estimate number of packs from area occupied (A) and territory size (T)
     for(k in 1:nyears){
-      P[k] <- (A[k] / T3)*T.overlap[k]
+      P[k] <- (A[k] / (T3 + 0.000001)) * T.overlap[k]
     }
     
     
@@ -459,7 +460,7 @@ cat("
     for(k in 1:(nyears-1)){
       for(p in 1:nperiods){
         cloglog(mu.pred[p,k]) <- b.period.surv[p] + eps.surv[k]
-        hazard[p,k] <- -log(1-mu.pred[p,k])
+        hazard[p,k] <- -log(1 - mu.pred[p,k])
       }#p
     }#k
     
@@ -502,14 +503,14 @@ cat("
     for(i in 1:ngroups){
       for(k in 2:nyears){
         g.mu[i,k] <- G[i,k-1] * annual.s[k-1] * (1 - em.group) + gamma[i,k-1]
-        G[i,k] ~ dnorm(g.mu[i,k], 1/(g.mu[i,k]+.01))T(0,)
+        G[i,k] ~ dnorm(g.mu[i,k], 1 / (g.mu[i,k] + 0.00001))T(0,25)
       }
     }
     
     # Observation proccess
     for(i in 1:ngroups){
       for(k in 1:nyears){
-        y.group[i,k] ~ dnorm(G[i,k], tauy.group)T(0,)
+        y.group[i,k] ~ dnorm(G[i,k], tauy.group)
       }
     }
     
@@ -533,7 +534,7 @@ cat("
     # Generalized linear model with log link function for recruitment
     for(i in 1:ngroups){
       for(k in 1:nyears){
-        log(mu.gamma[i,k]) <- B0.gam
+        mu.gamma[i,k] <- exp(B0.gam + B1.gam * G[i,k])
         gamma[i,k] ~ dpois(mu.gamma[i,k])
       }
     }
@@ -586,31 +587,21 @@ inits <- function(){list(B0.gam=runif(1,-1,1), sd.proc=runif(1,0,10),
 #### !!!add initial values!!! ####
 
 # Parameters to keep track of and report
-params <- c("P","var.group", "G.mean", "gamma.mean", "n.est", "phi", 
-            "colo", "psi", "B0.phi", "B0.colo", "b.pc1.colo", 
-            "b.recPC.colo", "B0.psi1", " b.pc1.psi", "b.recPC.psi", 
+params <- c("P","var.group", "G.mean", "gamma.mean", "n.est", 
+            "B0.phi", "B0.colo", "b.pc1.colo", 
+            "b.recPC.colo",  
             "b.pc1.colo", 
-            "b.recPC.colo",
+            "b.recPC.phi",
             "b.pc1.phi", 
-            "b.area.p11", 
-            "b.huntdays.p11", 
-            "b.acv.p11", 
-            "b.map.p11", 
-            "b.nonfrrds.p11",
-            "b.frrds.p11",
-            "b.huntdays.p10",
-            "b.nonfrrds.p10",
-            "b.frrds.p10",
-            "b.acv.p10",
-            "B0.gam", "A", "gamma", "G", "p11", "p10", "b", 
+            "B0.gam", "A", "gamma", "G", "B1.gam", "b.period.surv", 
             "eps.surv", 
             "var.surv", "annual.s") 
 
 
 # MCMC Settings 
-ni <- 1000
+ni <- 10000
 nt <- 2
-nb <- 100
+nb <- 1000
 nc <- 3
 
 
@@ -618,9 +609,9 @@ nc <- 3
 out_m1 <- jags(win.data, inits, params, "RecIPM_m1.txt", n.chains=nc, n.thin=nt, n.iter=ni, 
                n.burnin=nb, jags.module = c("glm", "dic"))
 
-print(out_m1, dig=2)
+#print(out_m1, dig=2)
 
-mcmcplot(out)
+#mcmcplot(out)
 
 
 #### format output for population level code ####
@@ -640,36 +631,20 @@ P2[,2] <- out_m1$BUGSoutput$sd$P
 gamma2 <- array(NA, dim=c(nyears, 2))
 gamma2[,1] <- out_m1$BUGSoutput$mean$gamma.mean
 gamma2[,2] <- out_m1$BUGSoutput$sd$gamma.mean
-phi2 <- array(NA, dim=c(nsites, nyears-1, 2))
-phi2[,,1] <- out_m1$BUGSoutput$mean$phi
-phi2[,,2] <- out_m1$BUGSoutput$sd$phi
-colo2 <- array(NA, dim=c(nsites, nyears-1, 2))
-colo2[,,1] <- out_m1$BUGSoutput$mean$colo
-colo2[,,2] <- out_m1$BUGSoutput$sd$colo
-b2 <- array(NA, dim=c(nsites, noccs, nyears, 2))
-b2[,,,1] <- out_m1$BUGSoutput$mean$b
-b2[,,,2] <- out_m1$BUGSoutput$sd$b
-p102 <- array(NA, dim=c(nyears,1, 2))
-p102[,,1] <- out_m1$BUGSoutput$mean$p10
-p102[,,2] <- out_m1$BUGSoutput$sd$p10
-p112 <- array(NA, dim=c(nyears,1, 2))
-p112[,,1] <- out_m1$BUGSoutput$mean$p11
-p112[,,2] <- out_m1$BUGSoutput$sd$p11
-psi2 <- array(NA, dim=c(nsites, nyears, 2))
-psi2[,,1] <- out_m1$BUGSoutput$mean$psi
-psi2[,,2] <- out_m1$BUGSoutput$sd$psi
-betas <- data.frame("B0.phi" = out_m1$BUGSoutput$mean$B0.phi, 
-                    "B0.phi.sd" = out_m1$BUGSoutput$sd$B0.phi,
+betas <- data.frame("B0.phi" = rep(out_m1$BUGSoutput$mean$B0.phi,9), 
+                    "B0.phi.sd" = rep(out_m1$BUGSoutput$sd$B0.phi,9),
                     "B0.colo" = out_m1$BUGSoutput$mean$B0.colo, 
                     "B0.colo.sd" = out_m1$BUGSoutput$sd$B0.colo,
-                    "b.pc1.colo" = out_m1$BUGSoutput$mean$b.pc1.colo, 
-                    "b.pc1.colo.sd" = out_m1$BUGSoutput$sd$b.pc1.colo,
-                    "b.recPC.colo" = out_m1$BUGSoutput$mean$b.recPC.colo, 
-                    "b.recPC.colo.sd" = out_m1$BUGSoutput$sd$b.recPC.colo,
-                    "b.recPC.phi" = out_m1$BUGSoutput$mean$b.recPC.phi, 
-                    "b.recPC.phi.sd" = out_m1$BUGSoutput$sd$b.recPC.phi,
-                    "B0.gam" = out_m1$BUGSoutput$mean$B0.gam, 
-                    "B0.gam.sd" = out_m1$BUGSoutput$sd$B0.gam)
+                    "b.pc1.colo" = rep(out_m1$BUGSoutput$mean$b.pc1.colo,9), 
+                    "b.pc1.colo.sd" = rep(out_m1$BUGSoutput$sd$b.pc1.colo,9),
+                    "b.recPC.colo" = rep(out_m1$BUGSoutput$mean$b.recPC.colo,9), 
+                    "b.recPC.colo.sd" = rep(out_m1$BUGSoutput$sd$b.recPC.colo,9),
+                    "b.pc1.phi" = rep(out_m1$BUGSoutput$mean$b.pc1.phi,9), 
+                    "b.pc1.phi.sd" = rep(out_m1$BUGSoutput$sd$b.pc1.phi,9),
+                    "b.period.surv" = c(out_m1$BUGSoutput$mean$b.period.surv, 1,2,3,4,5), 
+                    "b.period.surv.sd" = c(out_m1$BUGSoutput$sd$b.period.surv, 1,2,3,4,5),
+                    "eps.surv" = out_m1$BUGSoutput$mean$eps.surv, 
+                    "eps.surv.sd" = out_m1$BUGSoutput$sd$eps.surv)
 
 
 #### population level code ####
@@ -694,25 +669,27 @@ cat("
     ## Bring in data s, G.mean, gamma.mean, P, colo, and phi
     
     for(k in 1:nyears){
-      P[k] ~ dnorm(P2[k,1], 1 / (P2[k,2] * P2[k,2]))
-      G.mean[k] ~ dnorm(G.mean2[k,1], 1 / (G.mean2[k,2] * G.mean2[k,2]))
-      gamma.mean[k] ~ dnorm(gamma2[k,1], 1 / (gamma2[k,2] * gamma2[k,2]))
+      P[k] ~ dnorm(P2[k,1], 1 / (P2[k,2] * P2[k,2]+ 0.0000001))
+      G.mean[k] ~ dnorm(G.mean2[k,1], 1 / (G.mean2[k,2] * G.mean2[k,2]+ 0.0000001))
+      gamma.mean[k] ~ dnorm(gamma2[k,1], 1 / (gamma2[k,2] * gamma2[k,2]+ 0.0000001))
     }
     
     for(k in 1:(nyears-1)){
-      B0.colo[k] ~ dnorm(betas[k,3], 1 / (betas[k,4] * betas[k,4]))
-      eps.surv[k] ~ dnorm(betas[k,13], 1 / (betas[k,14] * betas[k,14]))
+      B0.colo[k] ~ dnorm(betas[k,3], 1 / (betas[k,4] * betas[k,4]+ 0.0000001))
+      eps.surv[k] ~ dnorm(betas[k,13], 1 / (betas[k,14] * betas[k,14]+ 0.0000001))
     }
     
-    B0.phi ~ dnorm(betas[1,1], 1 / (betas[1,2] * betas[1,2]))
-    b.pc1.colo ~ dnorm(betas[1,5], 1 / (betas[1,6] * betas[1,6]))
-    b.recPC.colo ~ dnorm(betas[1,7], 1 / (betas[1,8] * betas[1,8]))
-    b.recPC.phi ~ dnorm(betas[1,9], 1 / (betas[1,10] * betas[1,10]))
+    B0.phi ~ dnorm(betas[1,1], 1 / (betas[1,2] * betas[1,2]+ 0.0000001))
+    b.pc1.colo ~ dnorm(betas[1,5], 1 / (betas[1,6] * betas[1,6]+ 0.0000001))
+    b.recPC.colo ~ dnorm(betas[1,7], 1 / (betas[1,8] * betas[1,8]+ 0.0000001))
+    b.pc1.phi ~ dnorm(betas[1,9], 1 / (betas[1,10] * betas[1,10]+ 0.0000001))
     
     for(p in 1:nperiods){
-      b.period.surv[p] ~ dnorm(betas[p,11], 1 / (betas[p,12] * betas[p,12]))
+      b.period.surv[p] ~ dnorm(betas[p,11], 1 / (betas[p,12] * betas[p,12]+ 0.0000001))
     }
     
+    T ~ dlnorm(6.22985815, 1/0.58728123)
+
     ############################################################
     
     #             2. Likelihood
@@ -726,7 +703,7 @@ cat("
     
     for(i in 1:nsites){
       for(k in 1:(nyears-1)){
-        colo[i,k] <- B0.colo[k] + b.pc1.colo * PC1[i] + b.recPC.colo * recPC[i,k]
+        colo[i,k] <- B0.colo[k] + b.pc1.colo * PC1[i] + b.recPC.colo * recPC[i,k+1]
         phi[i,k] <- B0.phi + b.pc1.phi * PC1[i]
       }
     }
@@ -763,17 +740,15 @@ cat("
     
     for(k in 2:nyears){
       N.rec[k] ~ dpois(P[k-1] * gamma.mean[k-1])
-      N.ps[k] ~ dpois((P[k-1] + sum(colo[,k-1]*(area[]/T - P[k-1])) - P[k-1] * (1 - sum(phi[,k-1]))) * G.mean[k-1])
+      N.ps[k] ~ dpois((P[k-1] + sum(colo[,k-1]*((area[] * T.overlap[k])/T - P[k-1])) - P[k-1] * (1 - sum(phi[,k-1]))) * G.mean[k-1])
       N.ad[k] ~ dbin(annual.s[k-1], N.ps[k])
       N.tot[k] <- N.ad[k] + N.rec[k]
-      #n.mu[k] <- N.tot[k-1]*(1+colo[k]-(1-phi[k]))*s[k-1]+P[k-1]*gamma.mean[k-1]
-      #N.tot[k] ~ dpois(n.mu[k])
     }
     
     # Linking pack size (P) and mean group size (G.mean) as data (n.est) to abundance (N.tot)
     
     for(k in 1:nyears){
-      n.est[k,1] ~ dnorm(N.tot[k], (1 / (n.est[k,2]*n.est[k,2]+.001)))
+      n.est[k,1] ~ dnorm(N.tot[k], (1 / (n.est[k,2]*n.est[k,2]+0.00001)))
     }
     
     
@@ -791,9 +766,9 @@ sink()
 
 
 # Data
-win.data2 <- list("nyears"=nyears, "phi2"=phi2, "nsites"=nsites, "area"=sitecovs$AREASAMP,
-                  "n.est"=n.est, "s2"=s2, "gamma2"=gamma2, "P2"=P2, 
-                  "colo2"=colo2, "T"=Tr, "G.mean2"=G.mean2, "PC1"=sitecovs$PC1,
+win.data2 <- list("nyears"=nyears, "nsites"=nsites, "area"=sitecovs$AREASAMP,
+                  "n.est"=n.est, "gamma2"=gamma2, "P2"=P2, 
+                  "G.mean2"=G.mean2, "PC1"=sitecovs$PC1,
                   "recPC"=sitecovs[,27:36], "nperiods"=length(unique(y.surv$period)),
                   "width.interval"=width.interval,"betas"=betas)
 
@@ -803,14 +778,34 @@ inits2 <- function(){list()}
 
 
 # Parameters to keep track of and report
-params2 <- c("P", "s", "N.tot", "gamma.mean") 
+params2 <- c("P", "annual.s", "N.tot", "gamma.mean", "G.mean", 
+             "N.rec") 
 
 
 # Call JAGS 
-out2_m1 <- jags(win.data2, inits2, params2, "Rec_PopLevel_m.txt", n.chains=nc, n.thin=nt, n.iter=ni, 
+out2_m1 <- jags(win.data2, inits2, params2, "Rec_PopLevel_m1.txt", n.chains=nc, n.thin=nt, n.iter=ni, 
                 n.burnin=nb, jags.module = c("glm", "dic"))
 
 print(out2_m1, dig=2)
-mcmcplot(out2_m1)
+#mcmcplot(out2_m1)
 
 
+output <- data.frame("gamma" = out2_m1$BUGSoutput$mean$gamma.mean,
+                     "gamma.sd" = out2_m1$BUGSoutput$sd$gamma.mean,
+                     "N.rec" = c(out2_m1$BUGSoutput$mean$N.rec, NA),
+                     "N.rec.sd" = c(out2_m1$BUGSoutput$sd$N.rec, NA), 
+                     "year" = c(2007:2016))
+
+library(ggplot2)
+
+ggplot(output, aes(x=year, y=gamma))+
+  geom_point()+
+  geom_errorbar(aes(ymin=gamma-gamma.sd, ymax=gamma+gamma.sd), colour="black", width=.1)+
+  scale_y_continuous(limits = c(0,4))+
+  scale_x_continuous(breaks = c(2007:2016))
+
+ggplot(output, aes(x=year, y=N.rec))+
+  geom_point()+
+  geom_errorbar(aes(ymin=N.rec-N.rec.sd, ymax=N.rec+N.rec.sd), colour="black", width=.1)+
+  scale_y_continuous(limits = c(0,450))+
+  scale_x_continuous(breaks = c(2007:2016))

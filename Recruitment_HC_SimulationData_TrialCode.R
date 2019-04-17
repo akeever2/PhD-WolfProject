@@ -1,7 +1,7 @@
 #Code to simulate an individual-based wolf population. Since the number of packs 
 #is estimated by POM, I will start with the number of packs on the landscape. 
 #Using the mean pack size I will determine the number of indivudals that make up 
-#each pack. This code was adopted from Josh Nowak's code. 
+#each pack. This code was adapted from Josh Nowak's code. 
 #############################################################################################
 
 
@@ -73,6 +73,8 @@ reproduction<-function(wolf.pop, litter.size){
   #Get rid of the pups column and add the pups to the wolf population. 
   pack.pups$pups<-NULL
   wolf.pop<-bind_rows(wolf.pop, pack.pups) %>% arrange(pack, stage)
+  
+  wolf.pop <- ungroup(wolf.pop)
 }
 
 
@@ -97,7 +99,7 @@ harvest<-function(wolf.pop, harv.rate){
   #the population and a stupidity factor. Right now the stupidity factor is a 
   #constant 0.10. 
   prob.pup<-length(wolf.pop$stage[wolf.pop$stage=="P"])/
-    length(wolf.pop$stage[wolf.pop$stage!="P"]) + 0.10
+    nrow(wolf.pop) + 0.10
   
   #Harvest rate for any one stage depends on thier frequency in the population 
   #and total harvest rate. As stated above, pups have an additional stupidity
@@ -127,7 +129,7 @@ harvest<-function(wolf.pop, harv.rate){
 
 recruit<-function(wolf.pop){
   
-  wolf.packs<-gather(wolf.pop, pack, id)
+  wolf.packs<-wolf.pop %>% gather(pack, id)
   
     
     
@@ -141,6 +143,15 @@ recruit<-function(wolf.pop){
   }
   
 }
+
+
+
+
+
+
+
+
+##### I have no idea what this is ####
 
 x<-seq(0,1, by=0.02)
 m<-5
@@ -161,34 +172,13 @@ for(t in 2:Time){
   prob.harv.pups[t]<-N.pups[t-1]/(N.ad[t-1]+N.pups[t-1])+0.25
   Pb[t]<-N.breed[t]/N.ad[t]
 
+}
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###########################################################################################
-
-###Failed harvest code###
+#### Failed harvest code ####
 #wolf.pop<-wolf.pop %>% group_by(stage) %>% 
 # mutate(harvest=0)
 
@@ -212,11 +202,11 @@ for(t in 2:Time){
 
 
 
+#### Josh's code ####
 
-
-############################################################################################
+###########################################################L
 #Simulate an individual-based wolf population: Josh's code
-##########################################################
+##########################################################L
 require(dplyr)
 #  Number of individuals and packs known, pack size unknown
 
@@ -258,14 +248,14 @@ table(p3$sex, p3$breeder)
 #  Table breeder status by sex
 table(df$sex, df$breeder)
 
-#####################################################
+#####################################################L
 
 
 
 
 #One biological argument would suggest that we should begin with 100 individuals and create pairs of breeders.  OTOH, if the population has been going for a while then we can put a number of packs on the ground, populate the packs with a mean number of individuals and then assign two of the animals breeder status.  Something like....
 
-######################################################
+######################################################L
 npacks <- 10
 
 #  Grow packs by mean pack size, negative binomial or lognormal would also work,
@@ -302,7 +292,7 @@ table(df$pack)
 
 #  2 breeders in each pack
 tapply(df$breeder, df$pack, function(x) sum(x) == 2)	
-###########################################################################################
+###############################################################L
 
 
 
@@ -316,8 +306,7 @@ tapply(df$breeder, df$pack, function(x) sum(x) == 2)
 
 
 
-
-
+#### No idea what this is again ####
 
 
 x<-seq(0,1, by=0.02)

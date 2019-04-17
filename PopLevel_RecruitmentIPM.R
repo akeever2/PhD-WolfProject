@@ -21,15 +21,22 @@ setwd("C:/Users/allison/Documents/Project/Dissertation/Recruitment/Results")
 
 #### Bring in data ####
 
-# site covariates for occupancy
-sitecovs <- read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/sitecovariates.csv")
-# survey covariates for occupancy
-survcovs <- read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/surveycovariates.csv")
-# encounter histories for occupancy
-encounter <- read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/encounterhistory.csv")
+# Set the memory to max so it can store the output file
+library(snowfall)
+memory.limit(size = 7500000) #just shy of 8 tb limit i think
+
+
+# Pull in the encounter/detection histories, site covariates, and 
+# ACV and HuntDays covariates
+encounter <- read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/DetectionHistoriesPC.csv", row.names=1)
+sitecovs <- read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/SiteCovars.csv")
+ACV <-read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/ACV.csv", row.names=1)
+HuntDays <-read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/HuntDays.csv", row.names=1)
+MapPPN <-read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData/MappedPPN.csv", row.names=1)
+
 
 # collar data for survival model
-y.surv <- read.csv("C:/Users/allison/Documents/Project/WolfData/Keever_SurvivalData/ysurv_subset.csv")
+y.surv <- read.csv("C:/Users/allison/Documents/Project/WolfData/Keever_SurvivalData/ysurv_subset2.csv")
 
 
 # Mean and SD group sizes from good and moderate quality counts
@@ -44,37 +51,36 @@ POM.Group <- read.csv("C:/Users/allison/Documents/Project/WolfData/OccupancyData
 library(tidyr)
 library(dplyr)
 
-# y.occ is an array by 695 sites (rows), 5 survey occasions (columns), and 8 years (3D)
-# unlist allows me to put it back together properly, I add 1 at the end because
-# encounter data can't contain 0s for the model
-y.occ <- array(unlist(encounter[,2:41]), dim=c(695, 5, 8))+1
+# Reorganize the 2d matrix - site (row) by occasion*year (columns) - to a 3d 
+# array - site (row; 695) by occasion (column; 5) by year (3d; 10). You add
+# 1 to encounter histories because the data can't have 0s for JAGS. So the 
+# detection data are now 1, 2 and 3 instead of 0, 1, and 2. Then set the
+# number of sites, occasions, and years
+y.occ <- array(unlist(encounter), dim=c(695, 5, 10))+1
 nsites <- nrow(y.occ)
 noccs <- ncol(y.occ)
-nyears <- 8
+nyears <- 10
 
 
-# The survival data currently includes 2007-2017, however I only need until 2014
-# (7 years {nyears - 1} worth of data so I need to remove the data that I do not
+# You can double check that the encounter data was correctly set up by
+# comparing the original data brought in and the y.occ data using the
+# following code, remember it should be +1 for every value:
+encounter[1:5, 1:5]
+y.occ[1:5,,1]
+
+
+# The survival data currently includes 2007-2017, however I only need until 2016
+# (9 years {nyears - 1}) worth of data so I need to remove the data that I do not
 # need
-y.surv <- y.surv[y.surv$year < 2014]
+y.surv <- y.surv[y.surv$year < 2016,]
 
-# The event is whether the animal died (1) or not (0). If the animal was censored
-# then the last full time period of observation is used and the event is 0. If
-# the animal only lives through part of another period, then the previous period
-# is used as the last observation
-event <- y.surv$Event
-
-# Period is which period each observation is in
-Period = y.surv$period
-
-# Year is which year each observation is in
-Year = as.factor(y.surv$year)
 
 # The width interval is the number of months in each period. Because they are 
 # not all the same, the hazard is adjusted by multiplying by the number of 
 # months in each period to account for differences when calculating the 
 # cumulative harzard (H) and survival
 width.interval = c(2, 3, 3, 4)
+
 
 # The number of periods (which is currently 4) and the number of observations
 nperiods = length(unique(y.surv$period))
@@ -84,8 +90,11 @@ nobs =  nrow(y.surv)
 # Set my constants: em.group is a 10% dispersal rate from a pack, 
 # territory size is set to 600 sq km, and territory overlap is set to the 
 # values determined by FWP
+em.group <- 0.08
 mu.T <- 599.83
 sd.T <- 368.21
+shape <- 3.15727
+rate <- 0.0052635
 T.overlap <- c(1.12, 1.08, 1.13, 1.16, 1.26, 1.27, 1.33, 1.24, 1.26, 1.32)
 
 
@@ -105,7 +114,7 @@ library(mcmcplots)
 ################################################################################I
 #  Specify model in BUGS language
 
-sink("IPMmodel.txt")
+sink("POMmodel.txt")
 cat("
     model {
     
@@ -115,69 +124,45 @@ cat("
     
     ############################################################
     
-    ## 1.1 Occupancy priors
-    
     # psi1 coefficient (occupancy in year 1)
     B0.psi1 ~ dnorm(0,0.001)	  
     
     # Priors for transition probabilities (survival and colonization)
     for(k in 1:(nyears-1)){
-    B0.phi[k] ~ dnorm(0,0.001)
-    B0.colo[k] ~ dnorm(0,0.001)
+      B0.colo[k] ~ dnorm(0,0.001)
     }#k
     
-    # Priors for detection probabilities (only varies by year)
-    for(k in 1:nyears){
-    B0.p11[k] ~ dnorm(0,0.001)
-    B0.p10[k] ~ dnorm(0,0.001)
-    }#k
+    B0.phi ~ dnorm(0,0.001)
     
+    # Priors for detection probabilities
+    B0.p11 ~ dnorm(0,0.001)
+    B0.p10 ~ dnorm(0,0.001)
     B0.b ~ dnorm(0,0.001)
     
     # Priors for covariates
     b.pc1.psi ~ dnorm(0,0.001) 
-    b.pcks5yrs.psi ~ dnorm(0,0.001) 
+    b.recPC.psi ~ dnorm(0,0.001) 
     b.pc1.colo ~ dnorm(0,0.001) 
-    b.pcks5yrs.colo ~ dnorm(0,0.001) 
-    b.area ~ dnorm(0,0.001) 
+    b.recPC.colo ~ dnorm(0,0.001)
+    b.pc1.phi ~ dnorm(0,0.001)
+    b.area.p11 ~ dnorm(0,0.001) 
     b.huntdays.p11 ~ dnorm(0,0.001) 
-    b.acv ~ dnorm(0,0.001) 
+    b.acv.p11 ~ dnorm(0,0.001) 
+    b.map.p11 ~ dnorm(0,0.001)
+    b.nonfrrds.p11 ~ dnorm(0,0.001)
+    b.frrds.p11 ~ dnorm(0,0.001)
     b.huntdays.p10 ~ dnorm(0,0.001) 
     b.nonfrrds.p10 ~ dnorm(0,0.001)
-    b.nonfrrds.p11 ~ dnorm(0,0.001)
-    b.frrds.p11 ~ dnorm(0,0.001) 
-    b.frrds.p10 ~ dnorm(0,0.001) 
-    
-    
-    
-    ## 1.2 Territory priors
-    
-    ## 1.3 Survival priors
-    
-    # Random effect for year
-    for(k in 1:(nyears-1)){
-    eps.surv[k] ~ dnorm (0, tau.surv)
-    }
-    
-    sigma.surv ~ dunif(0,100)
-    tau.surv <- pow(sigma.surv, -2)
-    var.surv <- pow(sigma.surv, 2)
-    
-    # Beta coefficients
-    b0.surv ~ dnorm(0,0.001)
-    
-    for(p in 1:nperiods){
-    b.period.surv[p] ~ dnorm(0,0.001)
-    }
+    b.frrds.p10 ~ dnorm(0,0.001)
+    b.acv.p10 ~ dnorm(0,0.001)
     
     
     
     ############################################################
     
-    #             2. Likelihoods
+    #             2. Likelihood
     
     ############################################################
-    
     
     #####################
     
@@ -198,19 +183,16 @@ cat("
     # Define State (z) conditional on parameters- Nmbr sites occupied
     
     for(i in 1:nsites){
-    logit.psi1[i] <- B0.psi1 + b.pc1.psi * PC1[i] + b.pcks5yrs.psi * pcks5yrs[i,1]       
-    logit(psi1[i]) <- logit.psi1[i]                                     
+    logit(psi1[i]) <- B0.psi1 + b.pc1.psi * PC1[i] + b.recPC.psi * recPC[i,1]       
     z[i,1] ~ dbern(psi1[i])
     
     for(k in 1:(nyears-1)){
-    logit.phi[i,k] <- B0.phi[k] 
-    logit.colo[i,k] <- B0.colo[k] + b.pc1.colo * PC1[i] + b.pcks5yrs.colo * pcks5yrs[i,k] 
-    logit(phi[i,k]) <- logit.phi[i,k]
-    logit(colo[i,k]) <- logit.colo[i,k]
+    logit(phi[i,k]) <- B0.phi + b.pc1.phi * PC1[i] 
+    logit(colo[i,k]) <- B0.colo[k] + b.pc1.colo * PC1[i] + b.recPC.colo * recPC[i,k+1] 
     }#k
     
     for(k in 2:nyears){
-    muZ[i,k] <- z[i,k-1]*phi[i,k-1] + (1-z[i,k-1])*colo[i,k-1]
+    muZ[i,k] <- z[i,k-1] * phi[i,k-1] + (1-z[i,k-1]) * colo[i,k-1]
     z[i,k] ~ dbern(muZ[i,k])
     }#k
     }#i
@@ -228,12 +210,12 @@ cat("
     for(i in 1:nsites){
     for (j in 1:noccs){
     for(k in 1:nyears){			                                  
-    p[1,i,j,k,1] <- (1-p10[i,j,k])
-    p[1,i,j,k,2] <- (1-p11[i,j,k])
+    p[1,i,j,k,1] <- (1 - p10[i,j,k])
+    p[1,i,j,k,2] <- (1 - p11[i,j,k])
     p[2,i,j,k,1] <- p10[i,j,k]
-    p[2,i,j,k,2] <- (1-b[i,j,k])*p11[i,j,k]
+    p[2,i,j,k,2] <- (1 - b[i,j,k]) * p11[i,j,k]
     p[3,i,j,k,1] <- 0
-    p[3,i,j,k,2] <- b[i,j,k]*p11[i,j,k]
+    p[3,i,j,k,2] <- b[i,j,k] * p11[i,j,k]
     }#k
     }#j
     }#i
@@ -248,12 +230,9 @@ cat("
     for(i in 1:nsites){
     for(j in 1:noccs){
     for(k in 1:nyears){
-    multilogit.p11[i,j,k] <- B0.p11[k] + b.area * area[i] + b.huntdays.p11 * huntdays[i,j,k] + b.nonfrrds.p11 * nonforrds[i] + b.frrds.p11 * forrds[i]
-    logit(p11[i,j,k]) <- multilogit.p11[i,j,k]
-    multilogit.p10[i,j,k] <- B0.p10[k] + b.acv * acv[i,j,k] + b.huntdays.p10 * huntdays[i,j,k] + b.nonfrrds.p10 * nonforrds[i] + b.frrds.p10 * forrds[i]
-    logit(p10[i,j,k]) <- multilogit.p10[i,j,k]
-    multilogit.b[i,j,k] <- B0.b
-    logit(b[i,j,k]) <- multilogit.b[i,j,k]
+    logit(p11[i,j,k]) <- B0.p11 + b.area.p11 * area[i] + b.huntdays.p11 * huntdays[i,j,k] + b.nonfrrds.p11 * nonforrds[i] + b.frrds.p11 * forrds[i] + b.acv.p11 * acv[i,j,k] + b.map.p11 * mapppn[i,j,k]
+    logit(p10[i,j,k]) <- B0.p10 + b.acv.p10 * acv[i,j,k] + b.huntdays.p10 * huntdays[i,j,k] + b.nonfrrds.p10 * nonforrds[i] + b.frrds.p10 * forrds[i]
+    logit(b[i,j,k]) <- B0.b
     
     y.occ[i,j,k] ~ dcat(p[,i,j,k,(z[i,k]+1)])
     }#k
@@ -266,12 +245,9 @@ cat("
     
     for(i in 1:nsites){
     psi[i,1] <- psi1[i]
-    growthr[i,1] <- 1  
     
     for (k in 2:nyears){                                          
-    psi[i,k] <- psi[i,k-1]*phi[i,k-1] + (1-psi[i,k-1])*colo[i,k-1]
-    growthr[i,k] <- psi[i,k]/psi[i,k-1]
-    turnover[i,k-1] <- (1 - psi[i,k-1]) * colo[i,k-1]/psi[i,k]
+    psi[i,k] <- psi[i,k-1] * phi[i,k-1] + (1 - psi[i,k-1]) * colo[i,k-1]
     }#k
     }#i
     
@@ -298,30 +274,26 @@ cat("
     ####################
     
     # Pull in data for the mean for territory size
-    T ~ dnorm(mu.T, 1/(sd.T * sd.T))
+    T2 ~ dgamma(3.157, 0.00526)
+    T3 ~ dlnorm(6.22985815, 1/0.58728123)
     
     # Estimate number of packs from area occupied (A) and territory size (T)
     for(k in 1:nyears){
-    P[k] <- (A[k] / T)*T.overlap[k]
+    P[k] <- (A[k] / (T3 + 0.000001)) * T.overlap[k]
     }
     
-    
-
-
-    # Derived parameters
-
     # Pull in group count data to determine mean group size each year with error
     
     for(k in 1:nyears){
-      G[k] ~ dnorm(mu.G[k], 1/(sd.G[k] * sd.G[k]))    
+      G[k] ~ dnorm(mu.G[k], 1 / (sd.G[k] * sd.G[k] + 0.000001))T(0,)
     }
-
-
+    
+    
     # Estimate abundance each year based on estimated # of packs (P) and mean group
     # size (G). Then, add on the lone wolves in the population
-
+    
     for(k in 1:nyears){
-      N.est[k] <- P[k] * G[k]
+      N.est[k] <- P3[k] * G[k]
       N.total[k] <- N.est[k] * 1.125
     }
     
@@ -340,30 +312,33 @@ sink()
 
 
 # Data
-win.data <- list("nsites"=nsites, "nyears"=nyears, "ngroups"=ngroups, 
-                 "area"=sitecovs$AREASAMP, "noccs"=noccs, "y.occ"=y.occ, 
-                 "PC1"=sitecovs$PC1, "pcks5yrs"=sitecovs[,24:31], 
-                 "huntdays"=array(unlist(survcovs$HUNTDAYS), dim=c(695, 5, 8)),
+win.data <- list("nsites"=nsites, "nyears"=nyears, "area"=sitecovs$AREASAMP,
+                 "noccs"=noccs, "y.occ"=y.occ, "PC1"=sitecovs$PC1, 
+                 "recPC"=sitecovs[,27:36], 
+                 "huntdays"=array(unlist(HuntDays), dim=c(695, noccs, nyears)),
+                 "mapppn"=array(unlist(MapPPN), dim=c(695, noccs, nyears)),
                  "nonforrds"=sitecovs$LOWUSENONFORESTRDS, 
                  "forrds"=sitecovs$LOWUSEFORESTRDS, 
-                 "acv"=array(unlist(survcovs$ACV), dim=c(695, 5, 8)),  
-                 "y.surv"=y.surv, "em.group"=em.group, "y.group"=y.group, 
-                 "T.overlap"=T.overlap, "event"=event, "Period"=Period, 
-                 "Year"=Year, "width.interval"=width.interval, 
-                 "nperiods"=nperiods, "nobs"=nobs, "mu.T" =mu.T,
-                 "sd.T"=sd.T)
+                 "acv"=array(unlist(ACV), dim=c(695, noccs, nyears)),
+                 "T.overlap" =T.overlap, "mu.T" = mu.T, "sd.T" = sd.T,
+                 "mu.G" = POM.Group[,2], "sd.G" = POM.Group[,3])
 
 
-#  Initial Values	
+# Set initial values for true state, z. Use the encounter history data to set z for each
+# site and year. 
 zst <- apply(y.occ,c(1,3), max,na.rm=TRUE) # Take max value for each row (1) for each year (3)
 zst[zst=="-Inf"] <- NA 	# Change -Inf backs back to NAs (weird apply fucntion issue)
-zst[zst==1] <- 0  			# Makes 1's => 1
+zst[zst==1] <- 0  			# Makes 1's => 0
 zst[zst==3] <- 1  			# Makes 3's => 1
 zst[zst==2] <- 1  			# Makes 2's => 1
 
-inits <- function(){list(B0.gam=runif(1,-1,1), sd.proc=runif(1,0,10), 
-                         sigma.group=runif(1,0,10), z=zst)}
-#### add initial values ####
+# If you are having convergence issues can set up intial values for beta coefficients
+# E.G., B0.psi1=runif(1,-1,1) for 1 initial value or B0.phi=runif(nyears,-1,1)
+# for covariates that need more than 1 initial value
+inits <- function(){list(z=zst, B0.colo=runif((nyears-1),-6,-3), b.pc1.colo=runif(1,-2,-1), b.recPC.colo=runif(1,1,2),
+                         B0.psi1=runif(1,-5,-3), b.pc1.psi=runif(1,-1,1), b.recPC.psi=runif(1,1,2), B0.phi=runif(1,-1,1), b.pc1.phi=runif(1,1,2),
+                         B0.p10=runif(1,-4,-3), b.huntdays.p10=runif(1,-1,1), b.nonfrrds.p10=runif(1,-1,1), b.frrds.p10=runif(1,-1,1),
+                         B0.p11=runif(1,-8,-7))}
 
 # Parameters to keep track of and report
 params <- c("P","N.est","phi", 
@@ -379,7 +354,7 @@ nc <- 3
 
 
 # Call JAGS 
-out <- jags(win.data, inits, params, "IPMmodel.txt", n.chains=nc, n.thin=nt, n.iter=ni, 
+out <- jags(win.data, inits, params, "POMmodel.txt", n.chains=nc, n.thin=nt, n.iter=ni, 
             n.burnin=nb, jags.module = c("glm", "dic"))
 
 print(out, dig=2)
@@ -437,7 +412,7 @@ cat("
     ## Population priors
     
     # Initial population size
-    N.tot[1] ~ dnorm(800, 0.0001)I(0,)
+    N.tot[1] ~ dnorm(600, 0.0001)I(0,)
 
     # Prior for mean recruitment
     B0.gam ~ dunif(-10,10)
@@ -446,16 +421,16 @@ cat("
     ## Bring in data P, colo, and phi
     
     for(k in 1:nyears){
-      P[k] ~ dnorm(P2[k,1], 1 / (P2[k,2] * P2[k,2]))
+      P[k] ~ dnorm(P2[k,1], 1 / (P2[k,2] * P2[k,2]+ 0.000001))
     }
     
     for(k in 1:(nyears-1)){
-      B0.phi[k] ~ dnorm(betas[k,1], 1 / (betas[k,2] * betas[k,2]))
-      B0.colo[k] ~ dnorm(betas[k,3], 1 / (betas[k,4] * betas[k,4]))
+      B0.phi[k] ~ dnorm(betas[k,1], 1 / (betas[k,2] * betas[k,2]+ 0.000001))
+      B0.colo[k] ~ dnorm(betas[k,3], 1 / (betas[k,4] * betas[k,4]+ 0.000001))
     }
     
-    b.pc1.colo ~ dnorm(betas[1,5], 1 / (betas[1,6] * betas[1,6]))
-    b.pcks5yrs.colo ~ dnorm(betas[1,7], 1 / (betas[1,8] * betas[1,8]))
+    b.pc1.colo ~ dnorm(betas[1,5], 1 / (betas[1,6] * betas[1,6]+ 0.000001))
+    b.pcks5yrs.colo ~ dnorm(betas[1,7], 1 / (betas[1,8] * betas[1,8]+ 0.000001))
     
     ############################################################
     
@@ -534,7 +509,7 @@ cat("
     
     for(k in 2:nyears){
     N.rec[k] ~ dpois(P[k-1] * gamma.mean[k-1])
-    N.ps[k] ~ dpois((P[k-1] + sum(colo[,k-1]*(area[]/T - P[k-1])) - P[k-1] * (1 - phi[k-1])) * G.mean[k-1])
+    N.ps[k] ~ dpois((P[k-1] + sum(colo[,k-1]*((area[]*T.overlap[k])/T - P[k-1])) - P[k-1] * (1 - phi[k-1])) * G.mean[k-1])
     N.ad[k] ~ dbin(s[k-1], N.ps[k])
     N.tot[k] <- N.ad[k] + N.rec[k]
     }

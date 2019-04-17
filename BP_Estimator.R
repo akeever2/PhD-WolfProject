@@ -100,7 +100,7 @@ BP<-merge(bp.good2, covs)
 
 # Create density covariate based off of estimated abundance by dividing by the max area occupied 
 # by wolves from POM and then multiplying by 1000 to put into wolves per 1000 km^2
-BP$Density <- BP$P.Abundance/76200*1000
+BP$Density <- BP$P.Abundance/76215*1000
 
 # Create the pack level percent mortality based off of count + removals and the number removed
 # by harvest, control, or other human mortality
@@ -177,6 +177,7 @@ m8g <- glm(BP~EoY.Count*I(PopPerHarv+PopPerCont+PopPerOther)+P.Lambda, data=BP, 
 m9g <- glm(BP~EoY.Count*I(PackPerHarv+PackPerCont+PackPerOther)+P.Lambda, data=BP, family="binomial")
 m10g <- glm(BP~EoY.Count, data=BP, family="binomial")
 m11g <- glm(BP~EoY.Count+Density, data=BP, family="binomial")
+m12g <- glm(BP~EoY.Count+harvest, data=BP, family="binomial")
 
 mg <- list()
 head(mg)
@@ -192,6 +193,7 @@ mg[[8]]=m8g
 mg[[9]]=m9g
 mg[[10]]=m10g
 mg[[11]]=m11g
+mg[[12]]=m12g
 
 
 head(mg)
@@ -201,7 +203,7 @@ model.names <-c("Count+Lambda","Count+Lambda+PopHarvest", "Count+Lambda+PopContr
                 "Count+Lambda+PackHarvest", "Count+Lambda+PackControl", 
                 "Count+Lambda+PopMort", "Count+Lambda+PackMort",
                 "Count+Lambda+PopMort+Count*PopMort", 
-                "Count+Lambda+PackMort+Count*PackMort","Count", "Count+Density")
+                "Count+Lambda+PackMort+Count*PackMort","Count", "Count+Density", "Count+harv")
 
 library(AICcmodavg)
 aictab(cand.set = mg, modnames = model.names)
